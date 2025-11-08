@@ -75,24 +75,6 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
             <>
               <p className="cards-left-counter">Cards Left: {game.drawPile.length}</p>
               <Card card={game.topCardBack} showBack={true} size="large" />
-              <div className="color-hints">
-                {game.topCardBack.backColors.map((color, i) => (
-                  <span 
-                    key={i} 
-                    className="color-hint"
-                    style={{ 
-                      backgroundColor: COLOR_MAP[color] || color,
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '50%',
-                      display: 'inline-block',
-                      border: '3px solid white',
-                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
-                    }}
-                    title={color}
-                  />
-                ))}
-              </div>
             </>
           ) : (
             <div className="empty-deck">Deck Empty!</div>
