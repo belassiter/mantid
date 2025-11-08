@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { auth, signInAnonymous } from './firebase/config';
-import { createGame, joinGame, startGame, useGameState, performScore, performSteal } from './hooks/useGameState';
+import { createGame, joinGame, startGame, useGameState, performScore, performSteal, sendEmoji } from './hooks/useGameState';
 import Lobby from './components/Lobby';
 import WaitingRoom from './components/WaitingRoom';
 import GameBoard from './components/GameBoard';
@@ -69,6 +69,14 @@ function App() {
     }
   };
 
+  const handleEmojiSend = async (playerIndex, emoji) => {
+    try {
+      await sendEmoji(gameId, playerIndex, emoji);
+    } catch (error) {
+      console.error('Failed to send emoji:', error);
+    }
+  };
+
   // Show loading state while authenticating
   if (!userId) {
     return (
@@ -130,6 +138,7 @@ function App() {
       currentUserId={userId}
       onScore={handleScore}
       onSteal={handleSteal}
+      onEmojiSend={handleEmojiSend}
     />
   );
 }

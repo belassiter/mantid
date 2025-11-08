@@ -126,3 +126,70 @@
 .stacked-card + .stacked-card {
   margin-top: -60px;
 }
+
+/* Emoji Buttons */
+.emoji-buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 2px solid #e0e0e0;
+}
+
+.tank.current-player .emoji-buttons {
+  border-top-color: #e0e0e0;
+}
+
+.emoji-button {
+  background: white;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 1.5rem;
+  width: 48px;
+  height: 48px;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emoji-button:hover {
+  transform: scale(1.15);
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.emoji-button:active {
+  transform: scale(0.95);
+}
+
+/* Emoji Display */
+.emoji-display {
+  font-size: 2rem;
+  margin-left: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.5s ease-in-out;
+  animation: emojiShow 5s ease-in-out;
+}
+
+.emoji-display.visible {
+  opacity: 1;
+}
+
+@keyframes emojiShow {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

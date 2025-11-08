@@ -15,7 +15,7 @@ const COLOR_MAP = {
   pink: '#ec4899'
 };
 
-const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
+const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend }) => {
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
 
@@ -41,6 +41,12 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
     setShowActionModal(false);
     onSteal(targetIndex);
     setSelectedTarget(null);
+  };
+
+  const handleEmojiClick = (emoji) => {
+    if (onEmojiSend) {
+      onEmojiSend(currentPlayerIndex, emoji);
+    }
   };
 
   if (winner) {
@@ -109,6 +115,9 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
             isCurrentTurn={game.currentPlayerIndex === index}
             isCurrentPlayer={player.id === currentUserId}
             isWinning={checkWinCondition(player.scoreCount, game.players.length)}
+            playerEmoji={player.currentEmoji}
+            emojiTimestamp={player.emojiTimestamp}
+            onEmojiClick={player.id === currentUserId ? handleEmojiClick : null}
           />
         ))}
       </div>
