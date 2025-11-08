@@ -1,0 +1,148 @@
+.waiting-room {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.room-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.room-header h2 {
+  color: white;
+  font-size: 2rem;
+  margin: 0 0 0.5rem;
+}
+
+.room-code {
+  background: white;
+  color: #667eea;
+  padding: 0.5rem 1.5rem;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 2.5rem;
+  letter-spacing: 0.3rem;
+  display: inline-block;
+  margin: 0.5rem 0;
+}
+
+.share-instruction {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.1rem;
+  margin: 0.5rem 0;
+}
+
+.players-list {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  min-width: 400px;
+  margin-bottom: 2rem;
+}
+
+.players-list h3 {
+  margin: 0 0 1rem;
+  color: #333;
+  font-size: 1.5rem;
+}
+
+.players-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.player-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: #f7fafc;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.player-number {
+  background: #667eea;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.player-name {
+  flex: 1;
+  font-weight: 600;
+  color: #333;
+}
+
+.host-badge {
+  background: #fbbf24;
+  color: #78350f;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.start-section {
+  text-align: center;
+}
+
+.btn-large {
+  padding: 1rem 2rem;
+  font-size: 1.2rem;
+}
+
+.min-players-note {
+  color: rgba(255, 255, 255, 0.9);
+  margin-top: 1rem;
+  font-style: italic;
+}
+
+.waiting-message {
+  text-align: center;
+  color: white;
+}
+
+.waiting-message p {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.loading-dots {
+  font-size: 2rem;
+  margin-top: 0.5rem;
+}
+
+.loading-dots span {
+  animation: blink 1.4s infinite;
+  animation-fill-mode: both;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes blink {
+  0%, 80%, 100% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+}

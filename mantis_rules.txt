@@ -1,18 +1,13 @@
 Goal: Be the first player to have 10 or more cards in your Score Pile.
-CARDS: 
-The front and the back of the cards in this game have an important
-connection:
-The front of each card
-contains a character
-with a single color.
-The back of each
-card shows three
-different colors.
-The color of the character on the front (the white side of the card)
-is always one of the three colors on the back (black side of the card).
+
+CARDS
+The front and the back of the cards in this game have an important connection:
+The front of each card contains a character with a single color.
+The back of each card shows three different colors.
+The color of the character on the front (the white side of the card) is always one of the three colors on the back (black side of the card).
+
 SETUP
-Shuffle the whole deck and then deal out 4 cards face up (white side)
-to each player. The collection of cards in front of each player is called
+Shuffle the whole deck and then deal out 4 cards face up (white side) to each player. The collection of cards in front of each player is called
 their Tank. Keep the cards in your Tank face up (white side). If any of
 the cards in your Tank have the same colored character, put them in
 a spread-out stack so that you can see how many cards are in a stack
@@ -68,9 +63,7 @@ Note: Successfully stealing moves
 cards into your Tank, NOT into
 your Score Pile.
 
-When your turn is over,
-advance clockwise to
-the next player.
+When your turn is over, advance clockwise to the next player.
 
 SHOULD I TRY TO SCORE OR STEAL?
 Because you know the color of the character on the front (the

@@ -1,0 +1,213 @@
+.game-board {
+  min-height: 100vh;
+  padding: 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: white;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.game-header h2 {
+  margin: 0;
+  color: #667eea;
+}
+
+.game-info {
+  display: flex;
+  gap: 2rem;
+  font-weight: 600;
+  color: #666;
+}
+
+.draw-pile-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.draw-pile {
+  background: white;
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.draw-hint {
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+  color: #666;
+}
+
+.color-hints {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.empty-deck {
+  font-size: 1.5rem;
+  color: #999;
+  padding: 3rem;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 1rem;
+}
+
+.btn-score {
+  background: #48bb78;
+  color: white;
+}
+
+.btn-score:hover {
+  background: #38a169;
+}
+
+.btn-steal {
+  background: #ed8936;
+  color: white;
+}
+
+.btn-steal:hover {
+  background: #dd6b20;
+}
+
+.players-area {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.last-action {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.last-action .success {
+  color: #48bb78;
+  font-weight: bold;
+}
+
+.last-action .failure {
+  color: #f56565;
+  font-weight: bold;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  max-width: 500px;
+  width: 90%;
+}
+
+.modal h3 {
+  margin: 0 0 1.5rem;
+  color: #333;
+}
+
+.target-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.target-button {
+  padding: 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-align: left;
+}
+
+.target-button:hover {
+  border-color: #667eea;
+  background: #f7fafc;
+  transform: translateX(4px);
+}
+
+.target-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.target-info {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.game-over {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.winner-announcement {
+  background: white;
+  padding: 4rem;
+  border-radius: 24px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+  text-align: center;
+}
+
+.winner-announcement h1 {
+  font-size: 3rem;
+  margin: 0 0 1rem;
+  color: #667eea;
+  animation: bounce 1s ease infinite;
+}
+
+.winner-announcement p {
+  font-size: 1.5rem;
+  color: #666;
+  margin: 0 0 2rem;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}

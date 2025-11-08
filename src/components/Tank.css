@@ -1,0 +1,108 @@
+.tank {
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s;
+  border: 3px solid transparent;
+}
+
+.tank.active {
+  border-color: #667eea;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+}
+
+.tank-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.player-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.player-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.turn-indicator {
+  background: #667eea;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.score-display {
+  font-size: 1rem;
+  color: #666;
+}
+
+.score-display strong {
+  color: #667eea;
+  font-size: 1.2rem;
+}
+
+.tank-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  min-height: 130px;
+  align-items: flex-start;
+}
+
+.empty-tank {
+  width: 100%;
+  text-align: center;
+  color: #999;
+  padding: 2rem;
+  font-style: italic;
+}
+
+.card-stack {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.stacked-card {
+  position: relative;
+  display: inline-block;
+}
+
+.stack-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ff6b6b;
+  color: white;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: bold;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
