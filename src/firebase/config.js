@@ -6,12 +6,13 @@ import { getAuth, signInAnonymously } from 'firebase/auth';
 // TODO: Replace with your Firebase project configuration
 // Get these values from Firebase Console > Project Settings > Your Apps
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyDuE3E6Cl-KccdpfzVcOBkXfVtjmzFINNc",
+  authDomain: "mantid-game.firebaseapp.com",
+  projectId: "mantid-game",
+  storageBucket: "mantid-game.firebasestorage.app",
+  messagingSenderId: "1045375096175",
+  appId: "1:1045375096175:web:2e2e11d0413e91bd37049a",
+  measurementId: "G-Z7K16EQKQ2"
 };
 
 // Initialize Firebase

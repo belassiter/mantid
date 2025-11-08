@@ -104,7 +104,7 @@ function App() {
   }
 
   // Show loading while game data loads
-  if (loading) {
+  if (loading || !game) {
     return (
       <div className="loading-screen">
         <h2>Loading game...</h2>

@@ -26,34 +26,36 @@
 .card.front {
   color: white;
   text-transform: capitalize;
+  font-size: 1.1rem;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .card.red {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: #dc2626;
 }
 
 .card.blue {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  background: #2563eb;
 }
 
 .card.green {
-  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  background: #16a34a;
 }
 
 .card.yellow {
-  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  background: #eab308;
 }
 
 .card.purple {
-  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+  background: #9333ea;
 }
 
 .card.orange {
-  background: linear-gradient(135deg, #ff9a56 0%, #ff6a88 100%);
+  background: #ea580c;
 }
 
 .card.pink {
-  background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+  background: #ec4899;
 }
 
 .card.back {

@@ -4,6 +4,17 @@ import Card from './Card';
 import { checkWinCondition } from '../utils/gameRules';
 import './GameBoard.css';
 
+// Color mapping to match card fronts
+const COLOR_MAP = {
+  red: '#dc2626',
+  blue: '#2563eb',
+  green: '#16a34a',
+  yellow: '#eab308',
+  purple: '#9333ea',
+  orange: '#ea580c',
+  pink: '#ec4899'
+};
+
 const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
@@ -71,11 +82,12 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
                     key={i} 
                     className="color-hint"
                     style={{ 
-                      backgroundColor: color,
+                      backgroundColor: COLOR_MAP[color] || color,
                       color: 'white',
                       padding: '0.25rem 0.75rem',
                       borderRadius: '12px',
-                      fontWeight: 'bold'
+                      fontWeight: 'bold',
+                      textTransform: 'capitalize'
                     }}
                   >
                     {color}
@@ -114,6 +126,7 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
             playerName={player.name}
             scoreCount={player.scoreCount}
             isCurrentTurn={game.currentPlayerIndex === index}
+            isCurrentPlayer={player.id === currentUserId}
           />
         ))}
       </div>

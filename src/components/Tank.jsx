@@ -1,7 +1,7 @@
 import Card from './Card';
 import './Tank.css';
 
-const Tank = ({ cards, playerName, scoreCount, isCurrentTurn }) => {
+const Tank = ({ cards, playerName, scoreCount, isCurrentTurn, isCurrentPlayer }) => {
   // Group cards by color for display
   const groupedCards = cards.reduce((acc, card) => {
     if (!acc[card.color]) {
@@ -12,11 +12,12 @@ const Tank = ({ cards, playerName, scoreCount, isCurrentTurn }) => {
   }, {});
 
   return (
-    <div className={`tank ${isCurrentTurn ? 'active' : ''}`}>
+    <div className={`tank ${isCurrentTurn ? 'active-turn' : ''} ${isCurrentPlayer ? 'current-player' : 'other-player'}`}>
       <div className="tank-header">
         <div className="player-info">
           <span className="player-name">{playerName}</span>
-          {isCurrentTurn && <span className="turn-indicator">⬅ Your Turn</span>}
+          {isCurrentTurn && <span className="turn-indicator">⬅ Turn</span>}
+          {isCurrentPlayer && !isCurrentTurn && <span className="you-badge">You</span>}
         </div>
         <div className="score-display">
           Score: <strong>{scoreCount}</strong>
@@ -33,12 +34,9 @@ const Tank = ({ cards, playerName, scoreCount, isCurrentTurn }) => {
                 <div 
                   key={card.id} 
                   className="stacked-card"
-                  style={{ marginLeft: index > 0 ? '-50px' : '0' }}
+                  style={{ marginTop: index > 0 ? '-90px' : '0' }}
                 >
                   <Card card={card} />
-                  {colorCards.length > 1 && index === 0 && (
-                    <span className="stack-count">×{colorCards.length}</span>
-                  )}
                 </div>
               ))}
             </div>
