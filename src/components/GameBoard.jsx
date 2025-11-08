@@ -115,8 +115,7 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend }) => {
             isCurrentTurn={game.currentPlayerIndex === index}
             isCurrentPlayer={player.id === currentUserId}
             isWinning={checkWinCondition(player.scoreCount, game.players.length)}
-            playerEmoji={player.currentEmoji}
-            emojiTimestamp={player.emojiTimestamp}
+            emojiQueue={player.emojiQueue || []}
             onEmojiClick={player.id === currentUserId ? handleEmojiClick : null}
           />
         ))}

@@ -168,13 +168,19 @@
   transform: scale(0.95);
 }
 
-/* Emoji Display */
-.emoji-display {
-  font-size: 2rem;
+/* Emoji Display Queue */
+.emoji-queue {
+  display: flex;
+  gap: 0.5rem;
   position: absolute;
-  right: -2.5rem;
+  right: -15rem;
   top: 50%;
   transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.emoji-display {
+  font-size: 2rem;
   opacity: 0;
   transition: opacity 0.5s ease-in-out;
   animation: emojiShow 5s ease-in-out;

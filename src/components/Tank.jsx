@@ -14,35 +14,41 @@ const Tank = ({
   isCurrentTurn, 
   isCurrentPlayer, 
   isWinning,
-  playerEmoji,
-  emojiTimestamp,
+  emojiQueue,
   onEmojiClick 
 }) => {
-  const [showEmoji, setShowEmoji] = useState(false);
-  const [displayEmoji, setDisplayEmoji] = useState(null);
+  const [visibleEmojis, setVisibleEmojis] = useState([]);
 
-  // Handle emoji display timing
+  // Handle emoji queue - filter out expired emojis
   useEffect(() => {
-    if (playerEmoji && emojiTimestamp) {
-      const now = Date.now();
-      const age = now - emojiTimestamp;
-      
-      // Total duration is 5 seconds (500ms fade in + 4000ms visible + 500ms fade out)
-      if (age < 5000) {
-        setDisplayEmoji(playerEmoji);
-        setShowEmoji(true);
-        
-        // Set timeout to hide emoji after remaining time
-        const remainingTime = 5000 - age;
-        const timeout = setTimeout(() => {
-          setShowEmoji(false);
-          setTimeout(() => setDisplayEmoji(null), 500); // Wait for fade out
-        }, remainingTime);
-        
-        return () => clearTimeout(timeout);
-      }
+    if (!emojiQueue || emojiQueue.length === 0) {
+      setVisibleEmojis([]);
+      return;
     }
-  }, [playerEmoji, emojiTimestamp]);
+
+    const now = Date.now();
+    const activeEmojis = emojiQueue.filter(item => {
+      const age = now - item.timestamp;
+      return age < 5000; // 5 second total duration
+    });
+
+    setVisibleEmojis(activeEmojis);
+
+    // Set up interval to check for expired emojis
+    const interval = setInterval(() => {
+      const currentTime = Date.now();
+      const stillActive = activeEmojis.filter(item => {
+        const age = currentTime - item.timestamp;
+        return age < 5000;
+      });
+      
+      if (stillActive.length !== visibleEmojis.length) {
+        setVisibleEmojis(stillActive);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [emojiQueue]);
 
   // Group cards by color for display
   const groupedCards = cards.reduce((acc, card) => {
@@ -72,10 +78,21 @@ const Tank = ({
           {isCurrentTurn && <span className="turn-indicator">Active</span>}
           {isCurrentPlayer && !isCurrentTurn && <span className="you-badge">You</span>}
           
-          {/* Emoji display - visible to OTHER players only (not the sender) */}
-          {!isCurrentPlayer && displayEmoji && (
-            <div className={`emoji-display ${showEmoji ? 'visible' : ''}`}>
-              {displayEmoji}
+          {/* Emoji queue display - visible to OTHER players only (not the sender) */}
+          {!isCurrentPlayer && visibleEmojis.length > 0 && (
+            <div className="emoji-queue">
+              {visibleEmojis.map((item) => {
+                const age = Date.now() - item.timestamp;
+                const isVisible = age >= 0 && age < 5000;
+                return (
+                  <div 
+                    key={item.id} 
+                    className={`emoji-display ${isVisible ? 'visible' : ''}`}
+                  >
+                    {item.emoji}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

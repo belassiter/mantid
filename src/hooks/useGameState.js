@@ -321,11 +321,24 @@ export const sendEmoji = async (gameId, playerIndex, emoji) => {
 
     const game = gameSnap.data();
     const updatedPlayers = [...game.players];
+    const player = updatedPlayers[playerIndex];
+    
+    // Get existing emoji queue or initialize empty array
+    const currentQueue = player.emojiQueue || [];
+    
+    // Add new emoji with timestamp and unique ID
+    const newEmoji = {
+      emoji,
+      timestamp: Date.now(),
+      id: `${Date.now()}-${Math.random()}`
+    };
+    
+    // Keep only the last 5 emojis (including the new one)
+    const updatedQueue = [...currentQueue, newEmoji].slice(-5);
     
     updatedPlayers[playerIndex] = {
-      ...updatedPlayers[playerIndex],
-      currentEmoji: emoji,
-      emojiTimestamp: Date.now()
+      ...player,
+      emojiQueue: updatedQueue
     };
 
     await updateDoc(gameRef, {

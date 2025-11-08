@@ -11,16 +11,25 @@ const COLOR_MAP = {
   pink: '#ec4899'
 };
 
+// Define color order: Pink, Red, Orange, Yellow, Green, Blue, Purple
+const COLOR_ORDER = ['pink', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+
 const Card = ({ card, showBack = false, size = 'medium' }) => {
   if (!card) {
     return <div className={`card empty ${size}`}>?</div>;
   }
 
   if (showBack) {
+    // Sort backColors according to COLOR_ORDER
+    const sortedBackColors = card.backColors ? 
+      [...card.backColors].sort((a, b) => {
+        return COLOR_ORDER.indexOf(a) - COLOR_ORDER.indexOf(b);
+      }) : [];
+
     return (
       <div className={`card back ${size}`}>
         <div className="back-colors">
-          {card.backColors?.map((color, index) => (
+          {sortedBackColors.map((color, index) => (
             <div
               key={index}
               className="back-color-dot"
