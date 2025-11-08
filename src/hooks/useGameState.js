@@ -308,3 +308,31 @@ export const performSteal = async (gameId, game, playerIndex, targetIndex) => {
     throw error;
   }
 };
+
+// Send emoji from player
+export const sendEmoji = async (gameId, playerIndex, emoji) => {
+  try {
+    const gameRef = doc(db, 'games', gameId);
+    const gameSnap = await getDoc(gameRef);
+    
+    if (!gameSnap.exists()) {
+      throw new Error('Game not found');
+    }
+
+    const game = gameSnap.data();
+    const updatedPlayers = [...game.players];
+    
+    updatedPlayers[playerIndex] = {
+      ...updatedPlayers[playerIndex],
+      currentEmoji: emoji,
+      emojiTimestamp: Date.now()
+    };
+
+    await updateDoc(gameRef, {
+      players: updatedPlayers
+    });
+  } catch (error) {
+    console.error('Error sending emoji:', error);
+    throw error;
+  }
+};
