@@ -82,15 +82,15 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
                     className="color-hint"
                     style={{ 
                       backgroundColor: COLOR_MAP[color] || color,
-                      color: 'white',
-                      padding: '0.25rem 0.75rem',
-                      borderRadius: '12px',
-                      fontWeight: 'bold',
-                      textTransform: 'capitalize'
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      display: 'inline-block',
+                      border: '3px solid white',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
                     }}
-                  >
-                    {color}
-                  </span>
+                    title={color}
+                  />
                 ))}
               </div>
             </>
