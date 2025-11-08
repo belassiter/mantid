@@ -8,36 +8,23 @@
 
 .tank.current-player {
   background: white;
+  border-radius: 12px;
 }
 
 .tank.other-player {
-  background: #f5f5f5;
+  background: #e5e5e5;
+  border-radius: 12px;
 }
 
 .tank.active-turn {
   border-color: #16a34a;
-  position: relative;
+  border-width: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
-.tank.active-turn::before {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: -3px;
-  right: -3px;
-  bottom: -3px;
+.tank.active-turn.current-player,
+.tank.active-turn.other-player {
   border-radius: 12px;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(22, 163, 74, 0.6) 0%,
-    rgba(22, 163, 74, 0.4) 30%,
-    rgba(22, 163, 74, 0.2) 60%,
-    transparent 100%
-  );
-  z-index: -1;
-  padding: 60px;
-  margin: -60px;
 }
 
 .tank-header {
@@ -47,6 +34,10 @@
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
   border-bottom: 2px solid #e0e0e0;
+}
+
+.tank.other-player .tank-header {
+  border-bottom-color: #b0b0b0;
 }
 
 .player-info {
@@ -130,4 +121,8 @@
 .stacked-card {
   position: relative;
   display: inline-block;
+}
+
+.stacked-card + .stacked-card {
+  margin-top: -60px;
 }

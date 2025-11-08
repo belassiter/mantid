@@ -87,13 +87,13 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
               className="btn btn-score"
               onClick={handleScoreClick}
             >
-              Score (Add to My Tank)
+              Score
             </button>
             <button 
               className="btn btn-steal"
               onClick={handleStealClick}
             >
-              Steal (Add to Opponent's Tank)
+              Steal
             </button>
           </div>
         )}

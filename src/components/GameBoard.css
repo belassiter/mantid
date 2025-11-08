@@ -76,19 +76,23 @@
 .btn-score {
   background: #48bb78;
   color: white;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .btn-score:hover {
   background: #38a169;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
 }
 
 .btn-steal {
   background: #ed8936;
   color: white;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .btn-steal:hover {
   background: #dd6b20;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
 }
 
 .players-area {
