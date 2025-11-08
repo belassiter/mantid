@@ -1,7 +1,7 @@
 import Card from './Card';
 import './Tank.css';
 
-const Tank = ({ cards, playerName, scoreCount, isCurrentTurn, isCurrentPlayer }) => {
+const Tank = ({ cards, playerName, scoreCount, isCurrentTurn, isCurrentPlayer, isWinning }) => {
   // Group cards by color for display
   const groupedCards = cards.reduce((acc, card) => {
     if (!acc[card.color]) {
@@ -20,7 +20,7 @@ const Tank = ({ cards, playerName, scoreCount, isCurrentTurn, isCurrentPlayer })
           {isCurrentPlayer && !isCurrentTurn && <span className="you-badge">You</span>}
         </div>
         <div className="score-display">
-          Score: <strong>{scoreCount}</strong>
+          Score: <strong className={isWinning ? 'winning-score' : ''}>{scoreCount}</strong>
         </div>
       </div>
       

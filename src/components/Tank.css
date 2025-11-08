@@ -16,7 +16,9 @@
 
 .tank.active-turn {
   border-color: #16a34a;
-  box-shadow: 0 0 20px rgba(22, 163, 74, 0.4), 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 40px rgba(22, 163, 74, 0.6), 
+              0 0 80px rgba(22, 163, 74, 0.4),
+              0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
 .tank-header {
@@ -76,6 +78,11 @@
 .score-display strong {
   color: #667eea;
   font-size: 1.2rem;
+}
+
+.score-display strong.winning-score {
+  color: #16a34a;
+  font-weight: 900;
 }
 
 .tank-cards {

@@ -66,7 +66,6 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
         <h2>Mantid</h2>
         <div className="game-info">
           <span>Room: {game.roomCode}</span>
-          <span>Cards Left: {game.drawPile.length}</span>
         </div>
       </div>
 
@@ -74,8 +73,8 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
         <div className="draw-pile">
           {game.topCardBack ? (
             <>
+              <p className="cards-left-counter">Cards Left: {game.drawPile.length}</p>
               <Card card={game.topCardBack} showBack={true} size="large" />
-              <p className="draw-hint">Possible colors on front:</p>
               <div className="color-hints">
                 {game.topCardBack.backColors.map((color, i) => (
                   <span 
@@ -127,6 +126,7 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal }) => {
             scoreCount={player.scoreCount}
             isCurrentTurn={game.currentPlayerIndex === index}
             isCurrentPlayer={player.id === currentUserId}
+            isWinning={checkWinCondition(player.scoreCount, game.players.length)}
           />
         ))}
       </div>

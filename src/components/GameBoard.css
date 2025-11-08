@@ -43,10 +43,11 @@
   text-align: center;
 }
 
-.draw-hint {
-  margin: 1rem 0 0.5rem;
-  font-weight: 600;
-  color: #666;
+.cards-left-counter {
+  margin: 0 0 1rem 0;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #333;
 }
 
 .color-hints {
