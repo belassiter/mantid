@@ -285,8 +285,10 @@ export const performSteal = async (gameId, game, playerIndex, targetIndex) => {
 
     // Move to next player (or stay if 2-player and successful steal)
     let nextPlayerIndex = (playerIndex + 1) % game.players.length;
+    
+    // Chain steal rule: Only in 2-player games, successful steals get another turn
     if (game.players.length === 2 && stealSuccess) {
-      nextPlayerIndex = playerIndex; // Chain steal in 2-player
+      nextPlayerIndex = playerIndex; // Stay on current player
     }
 
     await updateDoc(gameRef, {
