@@ -16,7 +16,55 @@ const COLOR_MAP = {
   pink: '#ec4899'
 };
 
+// Animation sequence definitions
+const ANIMATION_SEQUENCES = {
+  scoreSuccess: [
+    { time: 0, action: 'flipCard', duration: 2600 },
+    { time: 2600, action: 'moveToTank', duration: 800 },
+    { time: 3400, action: 'arriveInTank', duration: 0 }, // Card arrives, movement stops
+    { time: 3900, action: 'fadeIn', duration: 500 }, // THEN matching cards fade in (500ms later)
+    { time: 4400, action: 'flipToBack', duration: 600 },
+    { time: 5000, action: 'fadeOut', duration: 500 },
+    { time: 5500, action: 'moveToScore', duration: 1000 },
+    { time: 6500, action: 'releaseSnapshot' },
+    { time: 7500, action: 'nextPlayer' }
+  ],
+  scoreFail: [
+    { time: 0, action: 'flipCard', duration: 2600 },
+    { time: 2600, action: 'moveToTank', duration: 800 },
+    { time: 3400, action: 'arriveInTank', duration: 0 }, // Card arrives in tank
+    { time: 3900, action: 'fadeIn', duration: 500 }, // Card fades in (no matches, just the one card)
+    { time: 4400, action: 'releaseSnapshot' },
+    { time: 4400, action: 'nextPlayer' }
+  ],
+  stealSuccess: [
+    { time: 0, action: 'flipCard', duration: 2600 },
+    { time: 2600, action: 'moveToTargetTank', duration: 800 },
+    { time: 3400, action: 'arriveInTank', duration: 0 }, // Card arrives
+    { time: 3900, action: 'fadeIn', duration: 500 }, // Matching cards fade in
+    { time: 4400, action: 'flipToBack', duration: 600 },
+    { time: 5000, action: 'fadeOut', duration: 500 },
+    { time: 5500, action: 'moveToActingTank', duration: 1000 },
+    { time: 6500, action: 'releaseSnapshot' },
+    { time: 7500, action: 'nextPlayer' }
+  ],
+  stealFail: [
+    { time: 0, action: 'flipCard', duration: 2600 },
+    { time: 2600, action: 'moveToTargetTank', duration: 800 },
+    { time: 3400, action: 'arriveInTank', duration: 0 }, // Card arrives
+    { time: 3900, action: 'fadeIn', duration: 500 }, // Card fades in
+    { time: 4400, action: 'releaseSnapshot' },
+    { time: 4400, action: 'nextPlayer' }
+  ]
+};
+
 const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocalMode = false }) => {
+  // Animation snapshot - frozen game state during animations
+  const [animationSnapshot, setAnimationSnapshot] = useState(null);
+  const [drawnCardInTank, setDrawnCardInTank] = useState(null); // Track when to show drawn card in tank
+  const [hiddenCardIds, setHiddenCardIds] = useState(new Set()); // Cards to hide during animation
+  
+  // Animation state
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
@@ -26,7 +74,6 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
   const [cardPosition, setCardPosition] = useState({ startX: 0, startY: 0, endX: 0, endY: 0 });
   const [stolenCards, setStolenCards] = useState([]);
   const [animatingStolenCards, setAnimatingStolenCards] = useState(false);
-  const [hiddenCardIds, setHiddenCardIds] = useState(new Set());
   const [lastActionTimestamp, setLastActionTimestamp] = useState(null);
   const [previousDrawPile, setPreviousDrawPile] = useState([]);
   const [previousPlayers, setPreviousPlayers] = useState([]);
@@ -36,10 +83,11 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
   const [scoringCards, setScoringCards] = useState([]);
   const [animatingScoringCards, setAnimatingScoringCards] = useState(false);
   const [buttonsFadingOut, setButtonsFadingOut] = useState(false);
-  const [ghostCardsInTank, setGhostCardsInTank] = useState({ tankIndex: null, cards: [] });
   const [flippingCardsInTank, setFlippingCardsInTank] = useState(new Set());
   const [fadingOutCardsInTank, setFadingOutCardsInTank] = useState(new Set());
-  const [frozenScoreCount, setFrozenScoreCount] = useState({}); // { tankIndex: actualScoreToShow }
+  
+  // Use snapshot during animations, live game state otherwise
+  const displayState = animationSnapshot || game;
 
   const currentPlayer = game.players.find(p => p.id === currentUserId);
   const currentPlayerIndex = game.players.findIndex(p => p.id === currentUserId);
@@ -50,6 +98,117 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
   const winner = !isAnimationScheduled && game.players.find(p => 
     checkWinCondition(p.scoreCount, game.players.length)
   );
+
+  // Animation execution engine
+  const executeAnimationSequence = (sequenceName, context) => {
+    const sequence = ANIMATION_SEQUENCES[sequenceName];
+    const timeouts = [];
+    
+    sequence.forEach(step => {
+      const timeout = setTimeout(() => {
+        switch (step.action) {
+          case 'flipCard':
+            setFlippingCard(context.drawnCard);
+            setIsFlipping(true);
+            setTargetTankIndex(context.targetTankIndex);
+            // Hide all matching cards (except drawn card) at start
+            if (context.cardsToAnimate && context.cardsToAnimate.length > 0) {
+              const idsToHide = context.cardsToAnimate
+                .filter(c => c.id !== context.drawnCard.id)
+                .map(c => c.id);
+              setHiddenCardIds(new Set(idsToHide));
+            }
+            break;
+            
+          case 'moveToTank':
+          case 'moveToTargetTank':
+            setIsFlipping(false);
+            setIsMoving(true);
+            break;
+            
+          case 'arriveInTank':
+            setIsMoving(false);
+            setFlippingCard(null);
+            setTargetTankIndex(null);
+            // Card has arrived but don't add to display yet
+            // Wait for fadeIn step to actually show it
+            break;
+            
+          case 'fadeIn':
+            // NOW reveal all cards - they will fade in with the Tank's automatic fade-in
+            setHiddenCardIds(new Set()); // Unhide all cards
+            if (context.drawnCard && context.targetTankIndex !== null) {
+              setDrawnCardInTank({
+                card: context.drawnCard,
+                tankIndex: context.targetTankIndex
+              });
+            }
+            break;
+            
+          case 'flipToBack':
+            if (context.cardsToAnimate && context.cardsToAnimate.length > 0) {
+              setFlippingCardsInTank(new Set(context.cardsToAnimate.map(c => c.id)));
+              setActingPlayerIndex(context.actingPlayerIndex);
+            }
+            break;
+            
+          case 'fadeOut':
+            if (context.cardsToAnimate && context.cardsToAnimate.length > 0) {
+              setFlippingCardsInTank(new Set()); // Clear flipping state
+              setFadingOutCardsInTank(new Set(context.cardsToAnimate.map(c => c.id)));
+            }
+            break;
+            
+          case 'moveToScore':
+            setFlippingCardsInTank(new Set());
+            setFadingOutCardsInTank(new Set());
+            setScoringCards(context.cardsToAnimate.map(card => ({
+              ...card,
+              startX: 0,
+              startY: 0,
+              endX: 0,
+              endY: 0
+            })));
+            setAnimatingScoringCards(true);
+            break;
+            
+          case 'moveToActingTank':
+            setFlippingCardsInTank(new Set());
+            setFadingOutCardsInTank(new Set());
+            setStolenCards(context.cardsToAnimate.map(card => ({
+              ...card,
+              startX: 0,
+              startY: 0,
+              endX: 0,
+              endY: 0,
+              sourceTankIndex: context.sourceTankIndex
+            })));
+            setAnimatingStolenCards(true);
+            break;
+            
+          case 'releaseSnapshot':
+            setAnimationSnapshot(null);
+            setDrawnCardInTank(null);
+            setHiddenCardIds(new Set());
+            setAnimatingScoringCards(false);
+            setAnimatingStolenCards(false);
+            setScoringCards([]);
+            setStolenCards([]);
+            setActingPlayerIndex(null);
+            break;
+            
+          case 'nextPlayer':
+            setDisplayCurrentPlayerIndex(game.currentPlayerIndex);
+            setIsAnimationScheduled(false);
+            break;
+        }
+      }, step.time);
+      
+      timeouts.push(timeout);
+    });
+    
+    return () => timeouts.forEach(clearTimeout);
+  };
 
   // Detect when an action occurs and trigger animations for all players
   useEffect(() => {
@@ -70,103 +229,32 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
     const action = game.lastAction.action;
     const wasSuccessful = game.lastAction.result === 'success';
     
+    // Create snapshot of game state BEFORE animations start
+    setAnimationSnapshot({
+      ...game,
+      players: previousPlayers,
+      drawPile: previousDrawPile,
+      currentPlayerIndex: game.currentPlayerIndex
+    });
+    
     if (action === 'score') {
       const actingPlayerIndex = game.players.findIndex(p => p.name === game.lastAction.player);
       if (actingPlayerIndex === -1) return;
       
-      // If successful, find the matching cards and freeze the old score
       let cardsToScore = [];
       if (wasSuccessful && previousPlayers.length > 0 && previousPlayers[actingPlayerIndex]) {
         const previousActingPlayer = previousPlayers[actingPlayerIndex];
         const tempTank = [...previousActingPlayer.tank, drawnCard];
         cardsToScore = findMatchingCards(tempTank, drawnCard.color);
-        
-        // Freeze the score at the OLD value (before Firebase updated it)
-        setFrozenScoreCount({ [actingPlayerIndex]: previousActingPlayer.scoreCount });
-        
-        // Show old matching cards as ghosts IMMEDIATELY (Firebase already removed them)
-        // This keeps them visible throughout the animation
-        const oldTankCards = previousActingPlayer.tank.filter(card => 
-          cardsToScore.some(c => c.id === card.id)
-        );
-        setGhostCardsInTank({ tankIndex: actingPlayerIndex, cards: oldTankCards });
       }
       
-      // Step 1: Trigger drawpile card flip animation
-      setFlippingCard(drawnCard);
-      setIsFlipping(true);
-      setTargetTankIndex(actingPlayerIndex);
-      
-      // Hide only the drawn card (it will appear after animation completes)
-      setHiddenCardIds(new Set([drawnCard.id]));
-      
-      // Step 2: After flip, move drawpile card to tank (2600ms)
-      setTimeout(() => {
-        setIsFlipping(false);
-        setIsMoving(true);
-        
-        // Step 3: After movement, card arrives in tank (800ms)
-        setTimeout(() => {
-          setIsMoving(false);
-          setFlippingCard(null);
-          setTargetTankIndex(null);
-          
-          // Unhide the drawn card so it fades in with the other cards
-          setHiddenCardIds(new Set());
-          
-          if (wasSuccessful && cardsToScore.length > 0) {
-            // Step 4: Wait for fade-in to complete, then flip scoring cards in tank (500ms fade)
-            setTimeout(() => {
-              setFlippingCardsInTank(new Set(cardsToScore.map(c => c.id)));
-              setActingPlayerIndex(actingPlayerIndex);
-              
-              // Step 5: After flip, fade out the cards (600ms flip duration)
-              setTimeout(() => {
-                setFadingOutCardsInTank(new Set(cardsToScore.map(c => c.id)));
-                
-                // Step 6: After fade-out, hide and animate to score pile (500ms fade-out)
-                setTimeout(() => {
-                  setFlippingCardsInTank(new Set());
-                  setFadingOutCardsInTank(new Set());
-                  
-                  // Hide scoring cards from tank, start animation to score pile
-                  setHiddenCardIds(new Set(cardsToScore.map(c => c.id)));
-                  setScoringCards(cardsToScore.map(card => ({
-                    ...card,
-                    startX: 0,
-                    startY: 0,
-                    endX: 0,
-                    endY: 0
-                  })));
-                  setAnimatingScoringCards(true);
-                  
-                  // Step 7: Cards fade into score pile + score updates (1000ms)
-                  setTimeout(() => {
-                    setAnimatingScoringCards(false);
-                    setScoringCards([]);
-                    setHiddenCardIds(new Set());
-                    setActingPlayerIndex(null);
-                    setFrozenScoreCount({}); // Unfreeze, show the new score
-                    setGhostCardsInTank({ tankIndex: null, cards: [] }); // Clear ghost cards
-                    
-                    // Update display current player 1 second after animation completes
-                    setTimeout(() => {
-                      setDisplayCurrentPlayerIndex(game.currentPlayerIndex);
-                      setIsAnimationScheduled(false);
-                    }, 1000);
-                  }, 1000);
-                }, 500);
-              }, 600);
-            }, 500);
-          } else {
-            // No scoring animation, just update display
-            setTimeout(() => {
-              setDisplayCurrentPlayerIndex(game.currentPlayerIndex);
-              setIsAnimationScheduled(false);
-            }, 1000);
-          }
-        }, 800);
-      }, 2600);
+      const sequenceName = wasSuccessful ? 'scoreSuccess' : 'scoreFail';
+      executeAnimationSequence(sequenceName, {
+        drawnCard,
+        targetTankIndex: actingPlayerIndex,
+        actingPlayerIndex,
+        cardsToAnimate: cardsToScore
+      });
       
     } else if (action === 'steal') {
       const actingPlayerIndex = game.players.findIndex(p => p.name === game.lastAction.player);
@@ -174,145 +262,44 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
       
       if (actingPlayerIndex === -1 || targetPlayerIndex === -1) return;
       
-      setFlippingCard(drawnCard);
-      setIsFlipping(true);
-      
-      let cardsToAnimate = [];
-      
-      if (wasSuccessful) {
-        // Successful steal: draw pile card goes to acting player
-        setTargetTankIndex(actingPlayerIndex);
-        setActingPlayerIndex(actingPlayerIndex);
-        
-        // Find matching cards that were stolen (from PREVIOUS state before Firebase update)
-        if (previousPlayers.length > 0 && previousPlayers[targetPlayerIndex]) {
-          const previousTargetPlayer = previousPlayers[targetPlayerIndex];
-          const tempTank = [...previousTargetPlayer.tank, drawnCard];
-          const matchingCards = findMatchingCards(tempTank, drawnCard.color);
-          cardsToAnimate = matchingCards.filter(card => 
-            previousTargetPlayer.tank.some(tc => tc.id === card.id)
-          );
-          
-          console.log('Steal animation starting:', {
-            actingPlayerIndex,
-            targetPlayerIndex,
-            cardsToAnimate: cardsToAnimate.map(c => c.color),
-            drawnCard: drawnCard.color
-          });
-        }
-        
-        // Don't hide cards or set ghosts yet - wait until drawn card arrives
-          
-        setTimeout(() => {
-          setIsFlipping(false);
-          setIsMoving(true);
-          
-          // NOW that card is moving to tank, hide the stolen cards from acting player
-          // and show them as ghosts in target player
-          if (cardsToAnimate.length > 0) {
-            const allAnimatingCardIds = new Set([
-              drawnCard.id,
-              ...cardsToAnimate.map(card => card.id)
-            ]);
-            setHiddenCardIds(allAnimatingCardIds);
-            setGhostCardsInTank({ tankIndex: targetPlayerIndex, cards: cardsToAnimate });
-          }
-          
-          // Start stolen cards animation at the same time as draw pile card
-          if (cardsToAnimate.length > 0) {
-            setStolenCards(cardsToAnimate.map(card => ({
-              ...card,
-              sourceTankIndex: targetPlayerIndex,
-              startX: 0,
-              startY: 0,
-              endX: 0,
-              endY: 0
-            })));
-            setAnimatingStolenCards(true);
-          }
-          
-          setTimeout(() => {
-              setIsMoving(false);
-              setFlippingCard(null);
-              setTargetTankIndex(null);
-              
-              if (cardsToAnimate.length > 0) {
-                // Wait for stolen cards animation to complete
-                setTimeout(() => {
-                  setAnimatingStolenCards(false);
-                  setStolenCards([]);
-                  setHiddenCardIds(new Set());
-                  setActingPlayerIndex(null);
-                  setGhostCardsInTank({ tankIndex: null, cards: [] });
-                  
-                  console.log('Steal animation complete, clearing ghost cards');
-                  console.log('Target player tank after clear:', game.players[targetPlayerIndex]?.tank.map(c => c.color));
-                  console.log('Acting player tank after clear:', game.players[actingPlayerIndex]?.tank.map(c => c.color));
-                  
-                  // Update display current player 1 second after animation completes
-                  setTimeout(() => {
-                    setDisplayCurrentPlayerIndex(game.currentPlayerIndex);
-                    setIsAnimationScheduled(false);
-                  }, 1000);
-                }, 800);
-              } else {
-                // No stolen cards, just update display
-                setHiddenCardIds(new Set());
-                setActingPlayerIndex(null);
-                setGhostCardsInTank({ tankIndex: null, cards: [] });
-                setTimeout(() => {
-                  setDisplayCurrentPlayerIndex(game.currentPlayerIndex);
-                  setIsAnimationScheduled(false);
-                }, 1000);
-              }
-            }, 800);
-          }, 2600);
-      } else {
-        // Failed steal: card goes to target player
-        setTargetTankIndex(targetPlayerIndex);
-        
-        // Hide the drawn card from the target player's tank during animation
-        setHiddenCardIds(new Set([drawnCard.id]));
-        
-        setTimeout(() => {
-          setIsFlipping(false);
-          setIsMoving(true);
-          
-          setTimeout(() => {
-            setIsMoving(false);
-            setFlippingCard(null);
-            setTargetTankIndex(null);
-            
-            // Clear hidden cards after animation
-            setHiddenCardIds(new Set());
-            
-            // Update display current player 1 second after animation completes
-            setTimeout(() => {
-              setDisplayCurrentPlayerIndex(game.currentPlayerIndex);
-              setIsAnimationScheduled(false);
-            }, 1000);
-          }, 800);
-        }, 2600);
+      let cardsToSteal = [];
+      if (wasSuccessful && previousPlayers.length > 0 && previousPlayers[targetPlayerIndex]) {
+        const previousTargetPlayer = previousPlayers[targetPlayerIndex];
+        const tempTank = [...previousTargetPlayer.tank, drawnCard];
+        const matchingCards = findMatchingCards(tempTank, drawnCard.color);
+        cardsToSteal = matchingCards.filter(card => 
+          previousTargetPlayer.tank.some(tc => tc.id === card.id)
+        );
       }
+      
+      const sequenceName = wasSuccessful ? 'stealSuccess' : 'stealFail';
+      const targetIndex = wasSuccessful ? actingPlayerIndex : targetPlayerIndex;
+      
+      executeAnimationSequence(sequenceName, {
+        drawnCard,
+        targetTankIndex: targetIndex,
+        actingPlayerIndex,
+        sourceTankIndex: targetPlayerIndex, // Where cards are stolen FROM
+        cardsToAnimate: cardsToSteal
+      });
     }
   }, [game.lastAction, previousDrawPile, game.players, game.currentPlayerIndex]);
 
-  // Track previous draw pile state
+  // Capture snapshot of game state when turn starts (BEFORE any actions)
   useEffect(() => {
-    if (game.drawPile && game.drawPile.length > 0) {
-      setPreviousDrawPile([...game.drawPile]);
+    // Only capture when it becomes my turn and no animation is running
+    if (isMyTurn && !isAnimationScheduled) {
+      if (game.drawPile && game.drawPile.length > 0) {
+        setPreviousDrawPile([...game.drawPile]);
+      }
+      if (game.players && game.players.length > 0) {
+        setPreviousPlayers(game.players.map(p => ({
+          ...p,
+          tank: [...p.tank]
+        })));
+      }
     }
-  }, [game.drawPile]);
-
-  // Track previous players state
-  useEffect(() => {
-    if (game.players && game.players.length > 0) {
-      setPreviousPlayers(game.players.map(p => ({
-        ...p,
-        tank: [...p.tank]
-      })));
-    }
-  }, [game.players]);
+  }, [displayCurrentPlayerIndex, isAnimationScheduled]); // Only trigger when turn changes
 
   // Initialize display current player index on first load
   useEffect(() => {
@@ -464,21 +451,21 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
       <div className="game-header">
         <h2>Mantid</h2>
         <div className="game-info">
-          <span>Room: {game.roomCode}</span>
+          <span>Room: {displayState.roomCode}</span>
         </div>
       </div>
 
       <div className="draw-pile-section">
         <div className="draw-pile">
-          {game.topCardBack ? (
+          {displayState.topCardBack ? (
             <>
-              <p className="cards-left-counter">Cards Left: {game.drawPile.length}</p>
+              <p className="cards-left-counter">Cards Left: {displayState.drawPile.length}</p>
               <div className={`card-flip-container ${isFlipping ? 'flipping' : ''}`}>
                 {isFlipping && flippingCard ? (
                   <>
                     <div className="card-flip-inner">
                       <div className="card-flip-back">
-                        <Card card={game.topCardBack} showBack={true} size="large" />
+                        <Card card={displayState.topCardBack} showBack={true} size="large" />
                       </div>
                       <div className="card-flip-front">
                         <Card card={flippingCard} showBack={false} size="large" />
@@ -486,25 +473,25 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
                     </div>
                   </>
                 ) : (
-                  <Card card={game.topCardBack} showBack={true} size="large" />
+                  <Card card={displayState.topCardBack} showBack={true} size="large" />
                 )}
               </div>
               
               <div 
                 className={`action-buttons ${buttonsFadingOut ? 'fading-out' : ''}`}
-                style={{ visibility: isMyTurn && game.drawPile.length > 0 ? 'visible' : 'hidden' }}
+                style={{ visibility: isMyTurn && displayState.drawPile.length > 0 ? 'visible' : 'hidden' }}
               >
                 <button 
                   className="btn btn-score"
                   onClick={handleScoreClick}
-                  disabled={!isMyTurn || game.drawPile.length === 0}
+                  disabled={!isMyTurn || displayState.drawPile.length === 0}
                 >
                   Score
                 </button>
                 <button 
                   className="btn btn-steal"
                   onClick={handleStealClick}
-                  disabled={!isMyTurn || game.drawPile.length === 0}
+                  disabled={!isMyTurn || displayState.drawPile.length === 0}
                 >
                   Steal
                 </button>
@@ -517,20 +504,12 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
       </div>
 
       <div className="players-area">
-        {game.players.map((player, index) => {
-          // Add ghost cards to this tank if they should be visible
-          // For ghost card tank, filter out any cards that are already in ghost cards to avoid duplicates
-          const cardsToDisplay = ghostCardsInTank.tankIndex === index 
-            ? [
-                ...player.tank.filter(card => 
-                  !ghostCardsInTank.cards.some(gc => gc.id === card.id)
-                ),
-                ...ghostCardsInTank.cards
-              ]
-            : player.tank;
-          
-          // Pass through hiddenCardIds - ghost cards will be filtered by their IDs too
-          const hiddenCardsForThisTank = hiddenCardIds;
+        {displayState.players.map((player, index) => {
+          // Add drawn card to tank if it has arrived (after animation completes)
+          let cardsToDisplay = player.tank;
+          if (drawnCardInTank && drawnCardInTank.tankIndex === index) {
+            cardsToDisplay = [...player.tank, drawnCardInTank.card];
+          }
           
           // Pass flipping cards only to the acting player's tank
           const flippingCardsForThisTank = index === actingPlayerIndex 
@@ -542,10 +521,10 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
             ? fadingOutCardsInTank 
             : new Set();
           
-          // Use frozen score during animation, otherwise use current score
-          const displayedScore = frozenScoreCount[index] !== undefined 
-            ? frozenScoreCount[index] 
-            : player.scoreCount;
+          // Pass hidden cards only to the acting player's tank
+          const hiddenCardsForThisTank = index === actingPlayerIndex 
+            ? hiddenCardIds 
+            : new Set();
           
           return (
             <Tank
@@ -553,10 +532,10 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
               id={`tank-${index}`}
               cards={cardsToDisplay}
               playerName={player.name}
-              scoreCount={displayedScore}
+              scoreCount={player.scoreCount}
               isCurrentTurn={displayCurrentPlayerIndex === index}
               isCurrentPlayer={isLocalMode ? (displayCurrentPlayerIndex === index) : (player.id === currentUserId)}
-              isWinning={checkWinCondition(player.scoreCount, game.players.length)}
+              isWinning={checkWinCondition(player.scoreCount, displayState.players.length)}
               emojiQueue={isLocalMode ? [] : (player.emojiQueue || [])}
               onEmojiClick={isLocalMode ? null : (player.id === currentUserId ? handleEmojiClick : null)}
               hiddenCardIds={hiddenCardsForThisTank}
@@ -654,7 +633,10 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
             </div>
             <button 
               className="btn btn-secondary"
-              onClick={() => setShowActionModal(false)}
+              onClick={() => {
+                setShowActionModal(false);
+                setButtonsFadingOut(false);
+              }}
             >
               Cancel
             </button>

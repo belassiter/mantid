@@ -151,14 +151,47 @@
 .stacked-card {
   position: relative;
   display: inline-block;
+  perspective: 1000px;
+}
+
+.stacked-card.hidden-card {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .stacked-card.fade-in {
   animation: fadeInCard 0.5s ease-in forwards;
 }
 
-.stacked-card.flipping-to-back {
+.flip-inner {
+  transform-style: preserve-3d;
+  position: relative;
+  width: 80px;
+  height: 120px;
+  display: block;
+}
+
+.stacked-card.flipping-to-back .flip-inner {
   animation: flipToBack 0.6s ease-in-out forwards;
+}
+
+.flip-front-side,
+.flip-back-side {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.flip-front-side {
+  transform: rotateY(0deg);
+}
+
+.flip-back-side {
+  transform: rotateY(180deg);
 }
 
 .stacked-card.fade-out {

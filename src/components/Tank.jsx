@@ -102,9 +102,8 @@ const Tank = ({
     setPreviousCardIds(currentVisibleIds);
   }, [cards, hiddenCardIds]);
 
-  // Filter out hidden cards and group cards by color for display
-  const visibleCards = cards.filter(card => !hiddenCardIds.has(card.id));
-  const groupedCards = visibleCards.reduce((acc, card) => {
+  // Group all cards by color for display (don't filter hidden - just mark them)
+  const groupedCards = cards.reduce((acc, card) => {
     if (!acc[card.color]) {
       acc[card.color] = [];
     }
@@ -167,13 +166,29 @@ const Tank = ({
               {groupedCards[color].map((card, index) => {
                 const isFlipping = flippingCardIds.has(card.id);
                 const isFadingOut = fadingOutCardIds.has(card.id);
+                const isFadingIn = fadingInCardIds.has(card.id);
+                const isHidden = hiddenCardIds.has(card.id);
+                
                 return (
                   <div 
                     key={card.id} 
-                    className={`stacked-card ${fadingInCardIds.has(card.id) ? 'fade-in' : ''} ${isFlipping ? 'flipping-to-back' : ''} ${isFadingOut ? 'fade-out' : ''}`}
+                    className={`stacked-card ${isFadingIn ? 'fade-in' : ''} ${isFlipping ? 'flipping-to-back' : ''} ${isFadingOut ? 'fade-out' : ''} ${isHidden ? 'hidden-card' : ''}`}
                     style={{ marginTop: index > 0 ? '-105px' : '0' }}
                   >
-                    <Card card={card} showBack={isFlipping} />
+                    {(isFlipping || isFadingOut) ? (
+                      // When flipping or fading out, use flip structure to show back
+                      <div className="flip-inner" style={{ transform: 'rotateY(180deg)' }}>
+                        <div className="flip-front-side">
+                          <Card card={card} showBack={false} />
+                        </div>
+                        <div className="flip-back-side">
+                          <Card card={card} showBack={true} />
+                        </div>
+                      </div>
+                    ) : (
+                      // Normal rendering - show front
+                      <Card card={card} showBack={false} />
+                    )}
                   </div>
                 );
               })}
@@ -185,14 +200,14 @@ const Tank = ({
         {scoreCount > 0 && (
           <div className="score-pile" id={`${id}-score-pile`}>
             <div className="score-pile-stack">
-              {[...Array(Math.min(scoreCount, 5))].map((_, index) => {
+              {[...Array(scoreCount)].map((_, index) => {
                 const randomColors = getRandomColors(index);
                 return (
                   <div 
                     key={index}
                     className="score-pile-card"
                     style={{ 
-                      marginTop: index > 0 ? '-105px' : '0',
+                      marginTop: index > 0 ? '-110px' : '0',
                       zIndex: index
                     }}
                   >
@@ -200,9 +215,6 @@ const Tank = ({
                   </div>
                 );
               })}
-              {scoreCount > 5 && (
-                <div className="score-pile-count">+{scoreCount - 5}</div>
-              )}
             </div>
           </div>
         )}
