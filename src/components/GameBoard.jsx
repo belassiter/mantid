@@ -491,10 +491,8 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend }) => {
             ? [...player.tank, ...ghostCardsInTank.cards]
             : player.tank;
           
-          // Only hide cards from specific tanks (not from ghost card tanks)
-          const hiddenCardsForThisTank = ghostCardsInTank.tankIndex === index 
-            ? new Set() // Don't hide ghost cards in their source tank
-            : hiddenCardIds;
+          // Pass through hiddenCardIds - ghost cards will be filtered by their IDs too
+          const hiddenCardsForThisTank = hiddenCardIds;
           
           // Pass flipping cards only to the acting player's tank
           const flippingCardsForThisTank = index === actingPlayerIndex 
@@ -576,7 +574,7 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend }) => {
             animationDelay: `${idx * 0.1}s`
           }}
         >
-          <Card card={card} showBack={false} size="medium" />
+          <Card card={card} showBack={true} size="medium" />
         </div>
       ))}
 

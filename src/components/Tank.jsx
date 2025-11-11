@@ -7,6 +7,21 @@ const COLOR_ORDER = ['pink', 'red', 'orange', 'yellow', 'green', 'blue', 'purple
 
 const EMOJI_OPTIONS = ['👍', '😂', '😮', '🔥', '💯'];
 
+// Generate consistent random colors for score pile based on seed
+const getRandomColors = (seed) => {
+  const colors = [...COLOR_ORDER];
+  const result = [];
+  let random = seed * 9301 + 49297; // Simple seeded random
+  
+  for (let i = 0; i < 3; i++) {
+    random = (random * 9301 + 49297) % 233280;
+    const index = Math.floor((random / 233280) * colors.length);
+    result.push(colors[index]);
+  }
+  
+  return result;
+};
+
 const Tank = ({ 
   id,
   cards, 
@@ -156,7 +171,7 @@ const Tank = ({
                   <div 
                     key={card.id} 
                     className={`stacked-card ${fadingInCardIds.has(card.id) ? 'fade-in' : ''} ${isFlipping ? 'flipping-to-back' : ''} ${isFadingOut ? 'fade-out' : ''}`}
-                    style={{ marginTop: index > 0 ? '-90px' : '0' }}
+                    style={{ marginTop: index > 0 ? '-105px' : '0' }}
                   >
                     <Card card={card} showBack={isFlipping} />
                   </div>
@@ -170,18 +185,21 @@ const Tank = ({
         {scoreCount > 0 && (
           <div className="score-pile" id={`${id}-score-pile`}>
             <div className="score-pile-stack">
-              {[...Array(Math.min(scoreCount, 5))].map((_, index) => (
-                <div 
-                  key={index}
-                  className="score-pile-card"
-                  style={{ 
-                    marginTop: index > 0 ? '-90px' : '0',
-                    zIndex: index
-                  }}
-                >
-                  <Card card={{ color: 'back', backColors: ['gray', 'gray', 'gray'] }} showBack={true} />
-                </div>
-              ))}
+              {[...Array(Math.min(scoreCount, 5))].map((_, index) => {
+                const randomColors = getRandomColors(index);
+                return (
+                  <div 
+                    key={index}
+                    className="score-pile-card"
+                    style={{ 
+                      marginTop: index > 0 ? '-105px' : '0',
+                      zIndex: index
+                    }}
+                  >
+                    <Card card={{ color: 'back', backColors: randomColors }} showBack={true} size="score-pile" />
+                  </div>
+                );
+              })}
               {scoreCount > 5 && (
                 <div className="score-pile-count">+{scoreCount - 5}</div>
               )}

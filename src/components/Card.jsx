@@ -32,9 +32,11 @@ const Card = ({ card, showBack = false, size = 'medium' }) => {
           {sortedBackColors.map((color, index) => (
             <div
               key={index}
-              className="back-color-dot"
+              className={`back-color-rect ${size === 'score-pile' ? 'score-pile-size' : ''}`}
               style={{ backgroundColor: COLOR_MAP[color] || color }}
-            />
+            >
+              {size !== 'score-pile' && color}
+            </div>
           ))}
         </div>
       </div>
