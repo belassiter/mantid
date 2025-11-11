@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import './Lobby.css';
 
-const Lobby = ({ onCreateGame, onJoinGame, playerName, setPlayerName }) => {
+const Lobby = ({ onCreateGame, onJoinGame, onCreateLocalGame, playerName, setPlayerName }) => {
+  const [mode, setMode] = useState('local'); // 'local' or 'remote'
   const [roomCode, setRoomCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState('');
+  
+  // Local mode state
+  const [localPlayerCount, setLocalPlayerCount] = useState(2);
+  const [localPlayerNames, setLocalPlayerNames] = useState(['', '', '', '', '', '']);
 
   const handleCreate = async () => {
     if (!playerName.trim()) {
@@ -48,55 +53,165 @@ const Lobby = ({ onCreateGame, onJoinGame, playerName, setPlayerName }) => {
     }
   };
 
+  const handleLocalPlayerNameChange = (index, value) => {
+    const newNames = [...localPlayerNames];
+    newNames[index] = value;
+    setLocalPlayerNames(newNames);
+  };
+
+  const handleStartLocalGame = async () => {
+    const names = localPlayerNames.slice(0, localPlayerCount);
+    const emptyNames = names.filter(name => !name.trim());
+    
+    if (emptyNames.length > 0) {
+      setError('Please enter names for all players');
+      return;
+    }
+
+    setIsCreating(true);
+    setError('');
+    
+    try {
+      await onCreateLocalGame(names);
+    } catch (err) {
+      setError('Failed to create local game: ' + err.message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const isLocalGameReady = () => {
+    const names = localPlayerNames.slice(0, localPlayerCount);
+    return names.every(name => name.trim().length > 0);
+  };
+
+
   return (
     <div className="lobby">
       <h1>Mantid</h1>
       <p className="subtitle">A colorfully cutthroat card game</p>
 
       <div className="lobby-form">
-        <div className="input-group">
-          <label htmlFor="playerName">Your Name</label>
-          <input
-            id="playerName"
-            type="text"
-            value={playerName}
-            onChange={(e) => setPlayerName(e.target.value)}
-            placeholder="Enter your name"
-            maxLength={20}
-          />
+        {/* Mode Tabs */}
+        <div className="mode-tabs">
+          <button
+            className={`tab ${mode === 'local' ? 'active' : ''}`}
+            onClick={() => {
+              setMode('local');
+              setError('');
+            }}
+          >
+            Local
+          </button>
+          <button
+            className={`tab ${mode === 'remote' ? 'active' : ''}`}
+            onClick={() => {
+              setMode('remote');
+              setError('');
+            }}
+          >
+            Remote
+          </button>
         </div>
 
-        <div className="actions">
-          <button
-            onClick={handleCreate}
-            disabled={isCreating}
-            className="btn btn-primary"
-          >
-            {isCreating ? 'Creating...' : 'Create Game'}
-          </button>
+        {/* Local Mode */}
+        {mode === 'local' && (
+          <div className="local-mode">
+            <div className="input-group">
+              <label htmlFor="playerCount">Number of Players</label>
+              <select
+                id="playerCount"
+                value={localPlayerCount}
+                onChange={(e) => {
+                  setLocalPlayerCount(parseInt(e.target.value));
+                  setError('');
+                }}
+                className="player-count-select"
+              >
+                <option value={2}>2 Players</option>
+                <option value={3}>3 Players</option>
+                <option value={4}>4 Players</option>
+                <option value={5}>5 Players</option>
+                <option value={6}>6 Players</option>
+              </select>
+            </div>
 
-          <div className="divider">OR</div>
+            <div className="player-names">
+              {Array.from({ length: localPlayerCount }).map((_, index) => (
+                <div key={index} className="input-group">
+                  <label htmlFor={`player${index + 1}`}>
+                    Player {index + 1} Name
+                  </label>
+                  <input
+                    id={`player${index + 1}`}
+                    type="text"
+                    value={localPlayerNames[index]}
+                    onChange={(e) => handleLocalPlayerNameChange(index, e.target.value)}
+                    placeholder={`Enter name for Player ${index + 1}`}
+                    maxLength={20}
+                  />
+                </div>
+              ))}
+            </div>
 
-          <div className="input-group">
-            <label htmlFor="roomCode">Room Code</label>
-            <input
-              id="roomCode"
-              type="text"
-              value={roomCode}
-              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-              placeholder="Enter 4-letter code"
-              maxLength={4}
-            />
+            <button
+              onClick={handleStartLocalGame}
+              disabled={isCreating || !isLocalGameReady()}
+              className="btn btn-primary"
+            >
+              {isCreating ? 'Starting...' : 'Start Game'}
+            </button>
           </div>
+        )}
 
-          <button
-            onClick={handleJoin}
-            disabled={isJoining}
-            className="btn btn-secondary"
-          >
-            {isJoining ? 'Joining...' : 'Join Game'}
-          </button>
-        </div>
+        {/* Remote Mode */}
+        {mode === 'remote' && (
+          <div className="remote-mode">
+            <div className="input-group">
+              <label htmlFor="playerName">Your Name</label>
+              <input
+                id="playerName"
+                type="text"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                placeholder="Enter your name"
+                maxLength={20}
+              />
+            </div>
+
+            <div className="actions">
+              <button
+                onClick={handleCreate}
+                disabled={isCreating}
+                className="btn btn-primary"
+              >
+                {isCreating ? 'Creating...' : 'Create Game'}
+              </button>
+
+              <div className="divider">OR</div>
+
+              <div className="input-group">
+                <label htmlFor="roomCode">Room Code</label>
+                <input
+                  id="roomCode"
+                  type="text"
+                  value={roomCode}
+                  onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                  placeholder="Enter 4-letter code"
+                  maxLength={4}
+                />
+              </div>
+
+              <button
+                onClick={handleJoin}
+                disabled={isJoining}
+                className="btn btn-secondary"
+              >
+                {isJoining ? 'Joining...' : 'Join Game'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && <div className="error">{error}</div>}
       </div>

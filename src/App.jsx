@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { auth, signInAnonymous } from './firebase/config';
-import { createGame, joinGame, startGame, useGameState, performScore, performSteal, sendEmoji } from './hooks/useGameState';
+import { createGame, createLocalGame, joinGame, startGame, useGameState, performScore, performSteal, sendEmoji } from './hooks/useGameState';
 import Lobby from './components/Lobby';
 import WaitingRoom from './components/WaitingRoom';
 import GameBoard from './components/GameBoard';
@@ -34,6 +34,16 @@ function App() {
     }
   };
 
+  const handleCreateLocalGame = async (playerNames) => {
+    try {
+      const roomCode = await createLocalGame(playerNames, userId);
+      setGameId(roomCode);
+    } catch (error) {
+      throw new Error('Failed to create local game: ' + error.message);
+    }
+  };
+
+
   const handleJoinGame = async (roomCode, name) => {
     try {
       const gameCode = await joinGame(roomCode, name, userId);
@@ -52,7 +62,17 @@ function App() {
   };
 
   const handleScore = async () => {
-    const playerIndex = game.players.findIndex(p => p.id === userId);
+    // In local mode, use the current player based on currentPlayerIndex
+    // In remote mode, find the player by userId
+    const playerIndex = game.isLocalMode 
+      ? game.currentPlayerIndex 
+      : game.players.findIndex(p => p.id === userId);
+    
+    if (playerIndex === -1) {
+      console.error('Player not found');
+      return;
+    }
+    
     try {
       await performScore(gameId, game, playerIndex);
     } catch (error) {
@@ -61,7 +81,17 @@ function App() {
   };
 
   const handleSteal = async (targetIndex) => {
-    const playerIndex = game.players.findIndex(p => p.id === userId);
+    // In local mode, use the current player based on currentPlayerIndex
+    // In remote mode, find the player by userId
+    const playerIndex = game.isLocalMode 
+      ? game.currentPlayerIndex 
+      : game.players.findIndex(p => p.id === userId);
+    
+    if (playerIndex === -1) {
+      console.error('Player not found');
+      return;
+    }
+    
     try {
       await performSteal(gameId, game, playerIndex, targetIndex);
     } catch (error) {
@@ -104,6 +134,7 @@ function App() {
     return (
       <Lobby
         onCreateGame={handleCreateGame}
+        onCreateLocalGame={handleCreateLocalGame}
         onJoinGame={handleJoinGame}
         playerName={playerName}
         setPlayerName={setPlayerName}
@@ -135,10 +166,11 @@ function App() {
   return (
     <GameBoard
       game={game}
-      currentUserId={userId}
+      currentUserId={game.isLocalMode ? game.players[0].id : userId}
       onScore={handleScore}
       onSteal={handleSteal}
       onEmojiSend={handleEmojiSend}
+      isLocalMode={game.isLocalMode || false}
     />
   );
 }

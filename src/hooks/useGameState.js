@@ -96,6 +96,49 @@ export const createGame = async (playerName, userId) => {
   }
 };
 
+// Create a local game (all players on one device)
+export const createLocalGame = async (playerNames, userId) => {
+  try {
+    const roomCode = generateRoomCode();
+    const gameRef = doc(db, 'games', roomCode);
+    
+    // Check if room code already exists
+    const existingGame = await getDoc(gameRef);
+    if (existingGame.exists()) {
+      // Rare collision, try again
+      return createLocalGame(playerNames, userId);
+    }
+
+    // Create players array with all local players using the same userId
+    const players = playerNames.map((name, index) => ({
+      id: `${userId}-local-${index}`, // Unique ID for each local player
+      name: name,
+      tank: [],
+      scoreCount: 0,
+      isActive: true
+    }));
+
+    const newGame = {
+      roomCode,
+      status: 'waiting',
+      currentPlayerIndex: 0,
+      players,
+      drawPile: [],
+      topCardBack: null,
+      lastAction: null,
+      isLocalMode: true, // Mark this as a local game
+      createdAt: new Date().toISOString()
+    };
+
+    await setDoc(gameRef, newGame);
+    return roomCode;
+  } catch (error) {
+    console.error('Error creating local game:', error);
+    throw error;
+  }
+};
+
+
 // Join an existing game
 export const joinGame = async (roomCode, playerName, userId) => {
   try {

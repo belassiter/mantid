@@ -208,8 +208,8 @@ const Tank = ({
         )}
       </div>
       
-      {/* Emoji buttons - below cards, only visible for current player */}
-      {isCurrentPlayer && (
+      {/* Emoji buttons - below cards, only visible for current player and when emoji handler is provided */}
+      {isCurrentPlayer && onEmojiClick && (
         <div className="emoji-buttons">
           {EMOJI_OPTIONS.map((emoji) => (
             <button

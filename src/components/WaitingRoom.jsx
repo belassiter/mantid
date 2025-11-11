@@ -1,8 +1,31 @@
+import { useEffect } from 'react';
 import './WaitingRoom.css';
 
 const WaitingRoom = ({ game, onStartGame, currentUserId }) => {
   const isHost = game.players[0]?.id === currentUserId;
   const canStart = game.players.length >= 2;
+  const isLocalMode = game.isLocalMode || false;
+
+  // Auto-start local games
+  useEffect(() => {
+    if (isLocalMode && canStart) {
+      onStartGame();
+    }
+  }, [isLocalMode, canStart, onStartGame]);
+
+  // Don't show waiting room for local games - just show loading
+  if (isLocalMode) {
+    return (
+      <div className="waiting-room">
+        <div className="waiting-message">
+          <p>Starting game...</p>
+          <div className="loading-dots">
+            <span>.</span><span>.</span><span>.</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="waiting-room">
