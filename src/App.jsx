@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { auth, signInAnonymous } from './firebase/config';
-import { createGame, createLocalGame, joinGame, startGame, useGameState, performScore, performSteal, sendEmoji } from './hooks/useGameState';
+import { createGame, createLocalGame, joinGame, startGame, addBotPlayer, removeBotPlayer, changeBotDifficulty, useGameState, performScore, performSteal, sendEmoji } from './hooks/useGameState';
 import Lobby from './components/Lobby';
 import WaitingRoom from './components/WaitingRoom';
 import GameBoard from './components/GameBoard';
+import Footer from './components/Footer';
 import './App.css';
 
 function App() {
@@ -61,6 +62,33 @@ function App() {
     }
   };
 
+  const handleAddBot = async (difficulty) => {
+    try {
+      await addBotPlayer(gameId, difficulty);
+    } catch (error) {
+      console.error('Failed to add bot:', error);
+      throw error; // Re-throw so WaitingRoom can handle
+    }
+  };
+
+  const handleRemoveBot = async (botId) => {
+    try {
+      await removeBotPlayer(gameId, botId);
+    } catch (error) {
+      console.error('Failed to remove bot:', error);
+      throw error;
+    }
+  };
+
+  const handleChangeBotDifficulty = async (botId, difficulty) => {
+    try {
+      await changeBotDifficulty(gameId, botId, difficulty);
+    } catch (error) {
+      console.error('Failed to change bot difficulty:', error);
+      throw error;
+    }
+  };
+
   const handleScore = async () => {
     // In local mode, use the current player based on currentPlayerIndex
     // In remote mode, find the player by userId
@@ -110,68 +138,89 @@ function App() {
   // Show loading state while authenticating
   if (!userId) {
     return (
-      <div className="loading-screen">
-        <h2>Connecting...</h2>
-      </div>
+      <>
+        <div className="loading-screen">
+          <h2>Connecting...</h2>
+        </div>
+        <Footer />
+      </>
     );
   }
 
   // Show error if game failed to load
   if (error) {
     return (
-      <div className="error-screen">
-        <h2>Error</h2>
-        <p>{error}</p>
-        <button onClick={() => setGameId(null)} className="btn btn-primary">
-          Return to Lobby
-        </button>
-      </div>
+      <>
+        <div className="error-screen">
+          <h2>Error</h2>
+          <p>{error}</p>
+          <button onClick={() => setGameId(null)} className="btn btn-primary">
+            Return to Lobby
+          </button>
+        </div>
+        <Footer />
+      </>
     );
   }
 
   // Show lobby if no game joined
   if (!gameId) {
     return (
-      <Lobby
-        onCreateGame={handleCreateGame}
-        onCreateLocalGame={handleCreateLocalGame}
-        onJoinGame={handleJoinGame}
-        playerName={playerName}
-        setPlayerName={setPlayerName}
-      />
+      <>
+        <Lobby
+          onCreateGame={handleCreateGame}
+          onCreateLocalGame={handleCreateLocalGame}
+          onJoinGame={handleJoinGame}
+          playerName={playerName}
+          setPlayerName={setPlayerName}
+        />
+        <Footer />
+      </>
     );
   }
 
   // Show loading while game data loads
   if (loading || !game) {
     return (
-      <div className="loading-screen">
-        <h2>Loading game...</h2>
-      </div>
+      <>
+        <div className="loading-screen">
+          <h2>Loading game...</h2>
+        </div>
+        <Footer />
+      </>
     );
   }
 
   // Show waiting room if game hasn't started
   if (game.status === 'waiting') {
     return (
-      <WaitingRoom
-        game={game}
-        onStartGame={handleStartGame}
-        currentUserId={userId}
-      />
+      <>
+        <WaitingRoom
+          game={game}
+          onStartGame={handleStartGame}
+          onAddBot={handleAddBot}
+          onRemoveBot={handleRemoveBot}
+          onChangeBotDifficulty={handleChangeBotDifficulty}
+          currentUserId={userId}
+        />
+        <Footer />
+      </>
     );
   }
 
   // Show game board when playing
   return (
-    <GameBoard
-      game={game}
-      currentUserId={game.isLocalMode ? game.players[0].id : userId}
-      onScore={handleScore}
-      onSteal={handleSteal}
-      onEmojiSend={handleEmojiSend}
-      isLocalMode={game.isLocalMode || false}
-    />
+    <>
+      <GameBoard
+        game={game}
+        currentUserId={game.isLocalMode ? game.players[0].id : userId}
+        onScore={handleScore}
+        onSteal={handleSteal}
+        onEmojiSend={handleEmojiSend}
+        isLocalMode={game.isLocalMode || false}
+      />
+      <Footer />
+    </>
   );
 }
 

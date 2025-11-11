@@ -9,6 +9,7 @@ import {
   updateDoc, 
   onSnapshot,
   arrayUnion,
+  arrayRemove,
   increment 
 } from 'firebase/firestore';
 import { 
@@ -18,6 +19,7 @@ import {
   findMatchingCards,
   generateRoomCode 
 } from '../utils/cardLogic';
+import { generateBotName, BOT_DIFFICULTIES } from '../utils/botLogic';
 
 export const useGameState = (gameId) => {
   const [game, setGame] = useState(null);
@@ -97,7 +99,7 @@ export const createGame = async (playerName, userId) => {
 };
 
 // Create a local game (all players on one device)
-export const createLocalGame = async (playerNames, userId) => {
+export const createLocalGame = async (playerConfigs, userId) => {
   try {
     const roomCode = generateRoomCode();
     const gameRef = doc(db, 'games', roomCode);
@@ -106,17 +108,27 @@ export const createLocalGame = async (playerNames, userId) => {
     const existingGame = await getDoc(gameRef);
     if (existingGame.exists()) {
       // Rare collision, try again
-      return createLocalGame(playerNames, userId);
+      return createLocalGame(playerConfigs, userId);
     }
 
-    // Create players array with all local players using the same userId
-    const players = playerNames.map((name, index) => ({
-      id: `${userId}-local-${index}`, // Unique ID for each local player
-      name: name,
-      tank: [],
-      scoreCount: 0,
-      isActive: true
-    }));
+    // Create players array with all local players
+    const players = playerConfigs.map((config, index) => {
+      const basePlayer = {
+        id: config.isBot ? `bot-local-${Date.now()}-${index}` : `${userId}-local-${index}`,
+        name: config.name,
+        tank: [],
+        scoreCount: 0,
+        isActive: true
+      };
+      
+      // Add bot properties if this is a bot
+      if (config.isBot) {
+        basePlayer.isBot = true;
+        basePlayer.botDifficulty = config.botDifficulty || 'medium';
+      }
+      
+      return basePlayer;
+    });
 
     const newGame = {
       roomCode,
@@ -177,6 +189,118 @@ export const joinGame = async (roomCode, playerName, userId) => {
     return roomCode.toUpperCase();
   } catch (error) {
     console.error('Error joining game:', error);
+    throw error;
+  }
+};
+
+// Add a bot player to the game
+export const addBotPlayer = async (gameId, difficulty = BOT_DIFFICULTIES.MEDIUM) => {
+  try {
+    const gameRef = doc(db, 'games', gameId);
+    const gameSnap = await getDoc(gameRef);
+
+    if (!gameSnap.exists()) {
+      throw new Error('Game not found');
+    }
+
+    const gameData = gameSnap.data();
+
+    if (gameData.status !== 'waiting') {
+      throw new Error('Game already started');
+    }
+
+    if (gameData.players.length >= 6) {
+      throw new Error('Game is full');
+    }
+
+    // Generate unique bot ID and name
+    const botId = `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const botName = generateBotName();
+
+    await updateDoc(gameRef, {
+      players: arrayUnion({
+        id: botId,
+        name: botName,
+        tank: [],
+        scoreCount: 0,
+        isActive: true,
+        isBot: true,
+        botDifficulty: difficulty
+      })
+    });
+
+    return botId;
+  } catch (error) {
+    console.error('Error adding bot:', error);
+    throw error;
+  }
+};
+
+// Remove a bot player from the game
+export const removeBotPlayer = async (gameId, botId) => {
+  try {
+    const gameRef = doc(db, 'games', gameId);
+    const gameSnap = await getDoc(gameRef);
+
+    if (!gameSnap.exists()) {
+      throw new Error('Game not found');
+    }
+
+    const gameData = gameSnap.data();
+
+    if (gameData.status !== 'waiting') {
+      throw new Error('Cannot remove bot after game has started');
+    }
+
+    // Find the bot to remove
+    const botToRemove = gameData.players.find(p => p.id === botId && p.isBot);
+    
+    if (!botToRemove) {
+      throw new Error('Bot not found');
+    }
+
+    // Remove the bot from players array
+    await updateDoc(gameRef, {
+      players: arrayRemove(botToRemove)
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Error removing bot:', error);
+    throw error;
+  }
+};
+
+// Change bot difficulty
+export const changeBotDifficulty = async (gameId, botId, newDifficulty) => {
+  try {
+    const gameRef = doc(db, 'games', gameId);
+    const gameSnap = await getDoc(gameRef);
+
+    if (!gameSnap.exists()) {
+      throw new Error('Game not found');
+    }
+
+    const gameData = gameSnap.data();
+
+    if (gameData.status !== 'waiting') {
+      throw new Error('Cannot change bot difficulty after game has started');
+    }
+
+    // Find and update the bot
+    const updatedPlayers = gameData.players.map(p => 
+      p.id === botId && p.isBot 
+        ? { ...p, botDifficulty: newDifficulty }
+        : p
+    );
+
+    await updateDoc(gameRef, {
+      players: updatedPlayers
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Error changing bot difficulty:', error);
     throw error;
   }
 };

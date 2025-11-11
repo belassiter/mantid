@@ -1,0 +1,26 @@
+.app-footer {
+  background: rgba(0, 0, 0, 0.8);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 1.5rem 2rem;
+  text-align: center;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: auto;
+}
+
+.app-footer p {
+  margin: 0.5rem 0;
+}
+
+.app-footer a {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.app-footer a:hover {
+  color: #8b9aff;
+  text-decoration: underline;
+}

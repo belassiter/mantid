@@ -3,6 +3,8 @@ import Tank from './Tank';
 import Card from './Card';
 import { checkWinCondition } from '../utils/gameRules';
 import { findMatchingCards } from '../utils/cardLogic';
+import { makeBotDecision, getBotThinkingTime } from '../utils/botLogic';
+import { performScore, performSteal } from '../hooks/useGameState';
 import './GameBoard.css';
 
 // Color mapping to match card fronts
@@ -301,6 +303,67 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
     }
   }, [displayCurrentPlayerIndex, isAnimationScheduled]); // Only trigger when turn changes
 
+  // Bot turn handler - automatically make move for bot players
+  useEffect(() => {
+    // Only proceed if it's someone's turn and no animation is running
+    if (!game || !game.players || isAnimationScheduled) return;
+    
+    const currentTurnPlayer = game.players[displayCurrentPlayerIndex];
+    
+    console.log('Bot turn check:', {
+      displayCurrentPlayerIndex,
+      currentTurnPlayer: currentTurnPlayer?.name,
+      isBot: currentTurnPlayer?.isBot,
+      isAnimationScheduled,
+      isLocalMode,
+      currentPlayerIndex
+    });
+    
+    // Check if current player is a bot
+    if (currentTurnPlayer && currentTurnPlayer.isBot) {
+      // In local mode, bot moves immediately
+      // In remote mode, only the first player triggers bot moves
+      const shouldTriggerBot = isLocalMode || (currentPlayerIndex === 0);
+      
+      console.log('Bot detected, shouldTriggerBot:', shouldTriggerBot);
+      
+      if (shouldTriggerBot) {
+        const thinkingTime = getBotThinkingTime(currentTurnPlayer.botDifficulty);
+        
+        console.log('Bot thinking for', thinkingTime, 'ms');
+        
+        const timer = setTimeout(async () => {
+          try {
+            const decision = makeBotDecision(
+              game, 
+              displayCurrentPlayerIndex, 
+              currentTurnPlayer.botDifficulty
+            );
+            
+            console.log('Bot decision:', decision);
+            
+            // Execute bot action directly with the bot's index
+            if (decision.action === 'score') {
+              await performScore(game.roomCode, game, displayCurrentPlayerIndex);
+            } else if (decision.action === 'steal' && decision.targetPlayer !== undefined) {
+              await performSteal(game.roomCode, game, displayCurrentPlayerIndex, decision.targetPlayer);
+            }
+          } catch (error) {
+            console.error('Bot move error:', error);
+            // Fallback: attempt to score
+            try {
+              await performScore(game.roomCode, game, displayCurrentPlayerIndex);
+            } catch (fallbackError) {
+              console.error('Bot fallback error:', fallbackError);
+            }
+          }
+        }, thinkingTime);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [displayCurrentPlayerIndex, isAnimationScheduled]);
+
   // Initialize display current player index on first load
   useEffect(() => {
     if (displayCurrentPlayerIndex === undefined || displayCurrentPlayerIndex === null) {
@@ -536,6 +599,8 @@ const GameBoard = ({ game, currentUserId, onScore, onSteal, onEmojiSend, isLocal
               isCurrentTurn={displayCurrentPlayerIndex === index}
               isCurrentPlayer={isLocalMode ? (displayCurrentPlayerIndex === index) : (player.id === currentUserId)}
               isWinning={checkWinCondition(player.scoreCount, displayState.players.length)}
+              isBot={player.isBot || false}
+              botDifficulty={player.botDifficulty}
               emojiQueue={isLocalMode ? [] : (player.emojiQueue || [])}
               onEmojiClick={isLocalMode ? null : (player.id === currentUserId ? handleEmojiClick : null)}
               hiddenCardIds={hiddenCardsForThisTank}

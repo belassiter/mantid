@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import './Lobby.css';
+import { generateBotName } from '../utils/botLogic';
 
 const Lobby = ({ onCreateGame, onJoinGame, onCreateLocalGame, playerName, setPlayerName }) => {
   const [mode, setMode] = useState('local'); // 'local' or 'remote'
@@ -11,6 +12,16 @@ const Lobby = ({ onCreateGame, onJoinGame, onCreateLocalGame, playerName, setPla
   // Local mode state
   const [localPlayerCount, setLocalPlayerCount] = useState(2);
   const [localPlayerNames, setLocalPlayerNames] = useState(['', '', '', '', '', '']);
+  const [localPlayerBots, setLocalPlayerBots] = useState([false, false, false, false, false, false]);
+  const [localPlayerDifficulties, setLocalPlayerDifficulties] = useState(['medium', 'medium', 'medium', 'medium', 'medium', 'medium']);
+  const [localBotNames, setLocalBotNames] = useState([
+    generateBotName(),
+    generateBotName(),
+    generateBotName(),
+    generateBotName(),
+    generateBotName(),
+    generateBotName()
+  ]);
 
   const handleCreate = async () => {
     if (!playerName.trim()) {
@@ -59,12 +70,29 @@ const Lobby = ({ onCreateGame, onJoinGame, onCreateLocalGame, playerName, setPla
     setLocalPlayerNames(newNames);
   };
 
+  const handleLocalPlayerBotToggle = (index) => {
+    const newBots = [...localPlayerBots];
+    newBots[index] = !newBots[index];
+    setLocalPlayerBots(newBots);
+  };
+
+  const handleLocalPlayerDifficultyChange = (index, difficulty) => {
+    const newDifficulties = [...localPlayerDifficulties];
+    newDifficulties[index] = difficulty;
+    setLocalPlayerDifficulties(newDifficulties);
+  };
+
   const handleStartLocalGame = async () => {
     const names = localPlayerNames.slice(0, localPlayerCount);
-    const emptyNames = names.filter(name => !name.trim());
+    const bots = localPlayerBots.slice(0, localPlayerCount);
+    const difficulties = localPlayerDifficulties.slice(0, localPlayerCount);
+    const botNames = localBotNames.slice(0, localPlayerCount);
     
-    if (emptyNames.length > 0) {
-      setError('Please enter names for all players');
+    // Check that human players have names
+    const invalidPlayers = names.filter((name, index) => !bots[index] && !name.trim());
+    
+    if (invalidPlayers.length > 0) {
+      setError('Please enter names for all human players');
       return;
     }
 
@@ -72,7 +100,13 @@ const Lobby = ({ onCreateGame, onJoinGame, onCreateLocalGame, playerName, setPla
     setError('');
     
     try {
-      await onCreateLocalGame(names);
+      // Pass bot configuration along with names
+      const playerConfigs = names.map((name, index) => ({
+        name: bots[index] ? botNames[index] : name,
+        isBot: bots[index],
+        botDifficulty: bots[index] ? difficulties[index] : undefined
+      }));
+      await onCreateLocalGame(playerConfigs);
     } catch (err) {
       setError('Failed to create local game: ' + err.message);
     } finally {
@@ -82,7 +116,9 @@ const Lobby = ({ onCreateGame, onJoinGame, onCreateLocalGame, playerName, setPla
 
   const isLocalGameReady = () => {
     const names = localPlayerNames.slice(0, localPlayerCount);
-    return names.every(name => name.trim().length > 0);
+    const bots = localPlayerBots.slice(0, localPlayerCount);
+    // All human players must have names
+    return names.every((name, index) => bots[index] || name.trim().length > 0);
   };
 
 
@@ -117,50 +153,81 @@ const Lobby = ({ onCreateGame, onJoinGame, onCreateLocalGame, playerName, setPla
         {/* Local Mode */}
         {mode === 'local' && (
           <div className="local-mode">
-            <div className="input-group">
-              <label htmlFor="playerCount">Number of Players</label>
-              <select
-                id="playerCount"
-                value={localPlayerCount}
-                onChange={(e) => {
-                  setLocalPlayerCount(parseInt(e.target.value));
-                  setError('');
-                }}
-                className="player-count-select"
-              >
-                <option value={2}>2 Players</option>
-                <option value={3}>3 Players</option>
-                <option value={4}>4 Players</option>
-                <option value={5}>5 Players</option>
-                <option value={6}>6 Players</option>
-              </select>
-            </div>
-
-            <div className="player-names">
-              {Array.from({ length: localPlayerCount }).map((_, index) => (
-                <div key={index} className="input-group">
-                  <label htmlFor={`player${index + 1}`}>
-                    Player {index + 1} Name
-                  </label>
-                  <input
-                    id={`player${index + 1}`}
-                    type="text"
-                    value={localPlayerNames[index]}
-                    onChange={(e) => handleLocalPlayerNameChange(index, e.target.value)}
-                    placeholder={`Enter name for Player ${index + 1}`}
-                    maxLength={20}
-                  />
-                </div>
-              ))}
+            <div className="input-group player-count-group">
+              <label htmlFor="playerCount">Number of Players:</label>
+              <div className="slider-container">
+                <input
+                  type="range"
+                  id="playerCount"
+                  min="2"
+                  max="6"
+                  value={localPlayerCount}
+                  onChange={(e) => {
+                    setLocalPlayerCount(parseInt(e.target.value));
+                    setError('');
+                  }}
+                  className="player-count-slider"
+                />
+                <span className="player-count-value">{localPlayerCount}</span>
+              </div>
             </div>
 
             <button
               onClick={handleStartLocalGame}
               disabled={isCreating || !isLocalGameReady()}
-              className="btn btn-primary"
+              className="btn btn-primary btn-start-game"
             >
               {isCreating ? 'Starting...' : 'Start Game'}
             </button>
+
+            <div className="player-names">
+              {Array.from({ length: localPlayerCount }).map((_, index) => (
+                <div key={index} className="player-config">
+                  <div className="player-header">
+                    <label htmlFor={`player${index + 1}`}>
+                      Player {index + 1}
+                    </label>
+                    <div className="toggle-wrapper">
+                      <span className="toggle-label">Bot</span>
+                      <label className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={localPlayerBots[index]}
+                          onChange={() => handleLocalPlayerBotToggle(index)}
+                        />
+                        <span className="toggle-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  {localPlayerBots[index] ? (
+                    <div className="bot-config">
+                      <div className={`bot-name bot-name-${localPlayerDifficulties[index]}`}>
+                        🤖 {localBotNames[index]}
+                      </div>
+                      <select
+                        value={localPlayerDifficulties[index]}
+                        onChange={(e) => handleLocalPlayerDifficultyChange(index, e.target.value)}
+                        className="bot-difficulty-dropdown"
+                      >
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <input
+                      id={`player${index + 1}`}
+                      type="text"
+                      value={localPlayerNames[index]}
+                      onChange={(e) => handleLocalPlayerNameChange(index, e.target.value)}
+                      placeholder={`Enter name for Player ${index + 1}`}
+                      maxLength={20}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

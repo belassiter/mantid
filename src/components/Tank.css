@@ -51,6 +51,18 @@
   color: #333;
 }
 
+.bot-name-easy {
+  color: #059669;
+}
+
+.bot-name-medium {
+  color: #d97706;
+}
+
+.bot-name-hard {
+  color: #dc2626;
+}
+
 .turn-indicator {
   background: #16a34a;
   color: white;
@@ -63,6 +75,15 @@
 
 .you-badge {
   background: #667eea;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.bot-indicator {
+  background: #8b5cf6;
   color: white;
   padding: 0.25rem 0.75rem;
   border-radius: 12px;

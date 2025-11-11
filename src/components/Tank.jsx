@@ -30,6 +30,8 @@ const Tank = ({
   isCurrentTurn, 
   isCurrentPlayer, 
   isWinning,
+  isBot = false,
+  botDifficulty,
   emojiQueue,
   onEmojiClick,
   hiddenCardIds = new Set(),
@@ -129,9 +131,12 @@ const Tank = ({
     >
       <div className="tank-header">
         <div className="player-info">
-          <span className="player-name">{playerName}</span>
+          <span className={`player-name ${isBot && botDifficulty ? `bot-name-${botDifficulty}` : ''}`}>
+            {isBot && '🤖 '}{playerName}
+          </span>
           {isCurrentTurn && <span className="turn-indicator">Active</span>}
           {isCurrentPlayer && !isCurrentTurn && <span className="you-badge">You</span>}
+          {isBot && <span className="bot-indicator">Bot</span>}
           
           {/* Emoji queue display - visible to OTHER players only (not the sender) */}
           {!isCurrentPlayer && visibleEmojis.length > 0 && (

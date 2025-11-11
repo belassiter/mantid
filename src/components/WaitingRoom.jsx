@@ -1,10 +1,43 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import './WaitingRoom.css';
 
-const WaitingRoom = ({ game, onStartGame, currentUserId }) => {
+const WaitingRoom = ({ game, onStartGame, currentUserId, onAddBot, onRemoveBot, onChangeBotDifficulty }) => {
   const isHost = game.players[0]?.id === currentUserId;
   const canStart = game.players.length >= 2;
   const isLocalMode = game.isLocalMode || false;
+  const [addingBot, setAddingBot] = useState(false);
+
+  const handleAddBot = async () => {
+    if (addingBot || game.players.length >= 6) return;
+    
+    setAddingBot(true);
+    try {
+      await onAddBot('medium'); // Default to medium difficulty
+    } catch (error) {
+      console.error('Error adding bot:', error);
+      alert('Failed to add bot player');
+    } finally {
+      setAddingBot(false);
+    }
+  };
+
+  const handleRemoveBot = async (botId) => {
+    try {
+      await onRemoveBot(botId);
+    } catch (error) {
+      console.error('Error removing bot:', error);
+      alert('Failed to remove bot player');
+    }
+  };
+
+  const handleDifficultyChange = async (botId, newDifficulty) => {
+    try {
+      await onChangeBotDifficulty(botId, newDifficulty);
+    } catch (error) {
+      console.error('Error changing bot difficulty:', error);
+      alert('Failed to change bot difficulty');
+    }
+  };
 
   // Auto-start local games
   useEffect(() => {
@@ -40,8 +73,34 @@ const WaitingRoom = ({ game, onStartGame, currentUserId }) => {
           {game.players.map((player, index) => (
             <li key={player.id} className="player-item">
               <span className="player-number">{index + 1}</span>
-              <span className="player-name">{player.name}</span>
-              {index === 0 && <span className="host-badge">Host</span>}
+              <span className={`player-name ${player.isBot ? `bot-name-${player.botDifficulty || 'medium'}` : ''}`}>
+                {player.isBot && '🤖 '}{player.name}
+              </span>
+              <div className="player-badges">
+                {index === 0 && <span className="host-badge">Host</span>}
+                {player.isBot && isHost ? (
+                  <select
+                    value={player.botDifficulty || 'medium'}
+                    onChange={(e) => handleDifficultyChange(player.id, e.target.value)}
+                    className="bot-difficulty-select"
+                  >
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                ) : player.isBot ? (
+                  <span className="bot-badge">{player.botDifficulty || 'medium'}</span>
+                ) : null}
+                {player.isBot && isHost && (
+                  <button 
+                    className="btn-remove-bot"
+                    onClick={() => handleRemoveBot(player.id)}
+                    title="Remove bot"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </li>
           ))}
         </ul>
@@ -49,6 +108,13 @@ const WaitingRoom = ({ game, onStartGame, currentUserId }) => {
 
       {isHost ? (
         <div className="start-section">
+          <button
+            onClick={handleAddBot}
+            disabled={addingBot || game.players.length >= 6}
+            className="btn btn-secondary btn-add-bot"
+          >
+            {addingBot ? 'Adding Bot...' : '🤖 Add Bot Player'}
+          </button>
           <button
             onClick={onStartGame}
             disabled={!canStart}
