@@ -175,6 +175,37 @@
   perspective: 1000px;
 }
 
+/* Highlighted cards - pulse with golden glow */
+.stacked-card.highlighted-card {
+  animation: cardHighlight 0.6s ease-in-out;
+  z-index: 100 !important;
+}
+
+@keyframes cardHighlight {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(251, 191, 36, 0);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(251, 191, 36, 0.8);
+  }
+}
+
+/* Animating cards - simple opacity pulse */
+.stacked-card.animating-card {
+  animation: cardPulse 0.5s ease-in-out;
+}
+
+@keyframes cardPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 .stacked-card.hidden-card {
   opacity: 0;
   pointer-events: none;
