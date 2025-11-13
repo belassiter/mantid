@@ -43,15 +43,33 @@ exports.performAction = functions.https.onCall(async (data, context) => {
 
       const game = gameDoc.data();
 
-      // Find player
-      const playerIndex = game.players.findIndex(p => p.id === userId);
-      if (playerIndex === -1) {
-        throw new functions.https.HttpsError('permission-denied', 'Player not in game');
-      }
+      // Find player - handle both regular and local mode
+      let playerIndex;
+      
+      if (game.isLocalMode) {
+        // In local mode, check if user owns the game (any player ID contains userId)
+        const ownsGame = game.players.some(p => p.id.includes(userId));
+        if (!ownsGame) {
+          throw new functions.https.HttpsError('permission-denied', 'Player not in game');
+        }
+        // In local mode, the current player is whoever's turn it is
+        playerIndex = game.currentPlayerIndex;
+        
+        // Don't allow actions on bot turns in local mode
+        if (game.players[playerIndex].isBot) {
+          throw new functions.https.HttpsError('permission-denied', 'Cannot perform action during bot turn');
+        }
+      } else {
+        // Regular multiplayer mode - player must match their own ID
+        playerIndex = game.players.findIndex(p => p.id === userId);
+        if (playerIndex === -1) {
+          throw new functions.https.HttpsError('permission-denied', 'Player not in game');
+        }
 
-      // Validate it's player's turn
-      if (game.currentPlayerIndex !== playerIndex) {
-        throw new functions.https.HttpsError('permission-denied', 'Not your turn');
+        // Validate it's player's turn
+        if (game.currentPlayerIndex !== playerIndex) {
+          throw new functions.https.HttpsError('permission-denied', 'Not your turn');
+        }
       }
 
       // Validate deck has cards
@@ -159,7 +177,7 @@ function executeScoreAction(game, playerIndex) {
         color: drawnCard.color,
         timestamp: new Date().toISOString()
       },
-      ...(hasWinner && { gameStatus: 'finished' })
+      ...(hasWinner && { status: 'finished' })
     },
     animationHint
   };

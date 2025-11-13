@@ -33,8 +33,13 @@ exports.processBotTurn = functions.firestore
       return null;
     }
     
-    // Check if game is finished
-    if (gameAfter.gameStatus === 'finished') {
+    // Check if game is finished (use 'status' field not 'gameStatus')
+    if (gameAfter.status === 'finished') {
+      return null;
+    }
+    
+    // Also skip if deck is empty
+    if (!gameAfter.drawPile || gameAfter.drawPile.length === 0) {
       return null;
     }
     
@@ -151,7 +156,7 @@ function executeScoreAction(game, playerIndex) {
         color: drawnCard.color,
         timestamp: new Date().toISOString()
       },
-      ...(hasWinner && { gameStatus: 'finished' })
+      ...(hasWinner && { status: 'finished' })
     },
     animationHint
   };

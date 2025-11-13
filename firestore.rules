@@ -1,14 +1,33 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Game documents - everyone can read, only Cloud Functions can write
+    // Game documents - everyone can read, limited writes for game creation
     match /games/{gameId} {
       // Allow anyone to read game state (for spectating and playing)
       allow read: if true;
       
-      // Block all direct writes from clients
-      // Only Cloud Functions can write to game state
-      allow write: if false;
+      // Allow creating new games (status = 'waiting')
+      allow create: if request.auth != null 
+                    && request.resource.data.status == 'waiting';
+      
+      // Allow updates only for:
+      // 1. Adding players to lobby (status remains 'waiting')
+      // 2. Starting game (transitioning from 'waiting' to 'playing')
+      // 3. Sending emojis (only emojiState field changes)
+      allow update: if request.auth != null 
+                    && (
+                      // Joining lobby
+                      (resource.data.status == 'waiting' 
+                       && request.resource.data.status == 'waiting')
+                      // Starting game
+                      || (resource.data.status == 'waiting' 
+                          && request.resource.data.status == 'playing')
+                      // Sending emojis only
+                      || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['emojiState']))
+                    );
+      
+      // Block deletes
+      allow delete: if false;
     }
     
     // Block access to all other collections
