@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import Tank from './Tank';
 import Card from './Card';
 import { checkWinCondition } from '../utils/gameRules';
@@ -23,7 +23,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false }) =>
     animatingCardIds: new Set()
   });
   const [lastSeenHintTimestamp, setLastSeenHintTimestamp] = useState(0);
-
+  
   const animationPlayerRef = useRef(null);
 
   // Initialize animation player
@@ -44,7 +44,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false }) =>
     if (!game || !game.animationHint || !animationPlayerRef.current) return;
 
     const hint = game.animationHint;
-
+    
     // Only play new animations (check timestamp)
     if (hint.timestamp && hint.timestamp > lastSeenHintTimestamp) {
       setLastSeenHintTimestamp(hint.timestamp);
@@ -54,14 +54,14 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false }) =>
 
   const currentPlayer = game?.players.find(p => p.id === currentUserId);
   const currentPlayerIndex = game?.players.findIndex(p => p.id === currentUserId);
-
-  const isMyTurn = isLocalMode
+  
+  const isMyTurn = isLocalMode 
     ? !game?.players[game.currentPlayerIndex]?.isBot  // In local mode, your turn if current player is not a bot
     : (game?.currentPlayerIndex === currentPlayerIndex);
 
   const handleScoreClick = async () => {
     if (!currentPlayer || animationPlayerRef.current?.isAnimating) return;
-
+    
     try {
       await performScore(game.roomCode);
     } catch (error) {
@@ -77,7 +77,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false }) =>
 
   const handleTargetSelect = async (targetPlayer) => {
     setShowActionModal(false);
-
+    
     try {
       await performSteal(game.roomCode, targetPlayer.id);
     } catch (error) {
@@ -145,7 +145,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false }) =>
       <div className="turn-info">
         {winner ? (
           <div className="winner-announcement">
-            🎉 <strong>{winner.name}</strong> wins! 🎉
+            ≡ƒÄë <strong>{winner.name}</strong> wins! ≡ƒÄë
           </div>
         ) : (
           <>
@@ -184,8 +184,8 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false }) =>
           {' - '}
           <span className={game.lastAction.result === 'success' ? 'success' : 'failure'}>
             {game.lastAction.result === 'success'
-              ? `✓ Match! (${game.lastAction.color})`
-              : `✗ No match (${game.lastAction.color})`
+              ? `Γ£ô Match! (${game.lastAction.color})`
+              : `Γ£ù No match (${game.lastAction.color})`
             }
           </span>
         </div>

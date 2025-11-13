@@ -479,7 +479,7 @@ export const performSteal = async (gameId, game, playerIndex, targetIndex) => {
 };
 
 // Send emoji from player
-export const sendEmoji = async (gameId, playerIndex, emoji) => {
+export const sendEmoji = async (gameId, playerId, emoji) => {
   try {
     const gameRef = doc(db, 'games', gameId);
     const gameSnap = await getDoc(gameRef);
@@ -489,11 +489,8 @@ export const sendEmoji = async (gameId, playerIndex, emoji) => {
     }
 
     const game = gameSnap.data();
-    const updatedPlayers = [...game.players];
-    const player = updatedPlayers[playerIndex];
-    
-    // Get existing emoji queue or initialize empty array
-    const currentQueue = player.emojiQueue || [];
+    const currentEmojiState = game.emojiState || {};
+    const playerQueue = currentEmojiState[playerId] || [];
     
     // Add new emoji with timestamp and unique ID
     const newEmoji = {
@@ -503,15 +500,14 @@ export const sendEmoji = async (gameId, playerIndex, emoji) => {
     };
     
     // Keep only the last 5 emojis (including the new one)
-    const updatedQueue = [...currentQueue, newEmoji].slice(-5);
+    const updatedQueue = [...playerQueue, newEmoji].slice(-5);
     
-    updatedPlayers[playerIndex] = {
-      ...player,
-      emojiQueue: updatedQueue
-    };
-
+    // Update only the emojiState field
     await updateDoc(gameRef, {
-      players: updatedPlayers
+      emojiState: {
+        ...currentEmojiState,
+        [playerId]: updatedQueue
+      }
     });
   } catch (error) {
     console.error('Error sending emoji:', error);
