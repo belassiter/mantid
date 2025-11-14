@@ -4,8 +4,9 @@
  */
 
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app } from '../firebase/config';
 
-const functions = getFunctions();
+const functions = getFunctions(app);
 
 /**
  * Perform a game action (score or steal)

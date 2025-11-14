@@ -1,6 +1,6 @@
 // Custom hook for managing game state with Firestore
 import { useState, useEffect } from 'react';
-import { db } from '../firebase/config';
+import { db, auth } from '../firebase/config';
 import { 
   collection, 
   doc, 
@@ -310,6 +310,14 @@ export const startGame = async (gameId, game) => {
   try {
     const gameRef = doc(db, 'games', gameId);
     
+    // Check auth status
+    const currentUser = auth.currentUser;
+    console.log('Current auth user:', currentUser ? currentUser.uid : 'NO USER');
+    
+    if (!currentUser) {
+      throw new Error('Not authenticated - cannot start game');
+    }
+    
     // Generate and shuffle deck
     const deck = shuffleDeck(generateDeck());
     
@@ -322,18 +330,24 @@ export const startGame = async (gameId, game) => {
       tank: hands[index]
     }));
 
-    // Get top card back for display
+    // Get top card back for display (send full card, client keeps front secret until flip)
     const topCardBack = remainingDeck.length > 0 
-      ? { backColors: remainingDeck[remainingDeck.length - 1].backColors }
+      ? remainingDeck[remainingDeck.length - 1]
       : null;
 
-    await updateDoc(gameRef, {
+    const updateData = {
       status: 'playing',
       players: updatedPlayers,
       drawPile: remainingDeck,
       topCardBack: topCardBack,
-      currentPlayerIndex: 0
-    });
+      currentPlayerIndex: 0,
+      gameStarted: Date.now() // Add timestamp to help trigger initial bot turn
+    };
+
+    console.log('Starting game with fields:', Object.keys(updateData));
+    console.log('Current game status:', game.status);
+
+    await updateDoc(gameRef, updateData);
   } catch (error) {
     console.error('Error starting game:', error);
     throw error;
@@ -378,9 +392,9 @@ export const performScore = async (gameId, game, playerIndex) => {
       return p;
     });
 
-    // Get new top card back
+    // Get new top card back (send full card, client keeps front secret until flip)
     const topCardBack = drawPile.length > 0 
-      ? { backColors: drawPile[drawPile.length - 1].backColors }
+      ? drawPile[drawPile.length - 1]
       : null;
 
     // Move to next player
@@ -445,9 +459,9 @@ export const performSteal = async (gameId, game, playerIndex, targetIndex) => {
       return p;
     });
 
-    // Get new top card back
+    // Get new top card back (send full card, client keeps front secret until flip)
     const topCardBack = drawPile.length > 0 
-      ? { backColors: drawPile[drawPile.length - 1].backColors }
+      ? drawPile[drawPile.length - 1]
       : null;
 
     // Move to next player (or stay if 2-player and successful steal)

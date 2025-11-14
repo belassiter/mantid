@@ -1,5 +1,5 @@
 .game-board {
-  min-height: 100vh;
+  flex: 1;
   padding: 2rem;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
@@ -18,11 +18,33 @@
 .game-header h2 {
   margin: 0;
   color: #667eea;
+  flex: 1;
+}
+
+.turn-display {
+  flex: 1;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.turn-display .winner-text {
+  color: #16a34a;
+  font-size: 1.2rem;
+}
+
+.turn-display .bot-label {
+  color: #999;
+  font-size: 0.9rem;
+  font-weight: normal;
 }
 
 .game-info {
+  flex: 1;
   display: flex;
   gap: 2rem;
+  justify-content: flex-end;
   font-weight: 600;
   color: #666;
 }
@@ -38,7 +60,7 @@
 
 .draw-pile {
   background: white;
-  padding: 2rem;
+  padding: 1rem 2rem 2rem 2rem;
   border-radius: 16px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   text-align: center;
@@ -47,13 +69,16 @@
   align-items: center;
   justify-content: center;
   gap: 1rem;
+  min-height: 290px;
+  min-width: 250px;
 }
 
 .cards-left-counter {
-  margin: 0 0 1rem 0;
+  margin: 0 0 0.5rem 0;
   font-weight: 700;
   font-size: 1.1rem;
   color: #333;
+  min-height: 1.5rem;
 }
 
 .color-hints {
@@ -73,21 +98,28 @@
 /* Card Flip Animation */
 .card-flip-container {
   perspective: 1000px;
-  width: 100px;
-  height: 150px;
   position: relative;
+  display: inline-block;
+}
+
+.card-flip-container > *:not(:first-child) {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .card-flip-inner {
-  position: relative;
   width: 100%;
   height: 100%;
-  transition: transform 0.6s;
   transform-style: preserve-3d;
 }
 
-.card-flip-container.flipping .card-flip-inner {
+.card-flip-inner.flipping {
   animation: flipCard 2.6s ease-in-out;
+}
+
+.card-flip-inner.flip-complete {
+  transform: rotateY(180deg); /* Hold card rotated after flip animation */
 }
 
 @keyframes flipCard {
@@ -161,22 +193,38 @@
   background: #48bb78;
   color: white;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
 }
 
-.btn-score:hover {
+.btn-score:hover:not(:disabled) {
   background: #38a169;
   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+
+.btn-score:disabled {
+  background: #d1d5db;
+  color: #9ca3af;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  cursor: not-allowed;
 }
 
 .btn-steal {
   background: #ed8936;
   color: white;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
 }
 
-.btn-steal:hover {
+.btn-steal:hover:not(:disabled) {
   background: #dd6b20;
   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+
+.btn-steal:disabled {
+  background: #d1d5db;
+  color: #9ca3af;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  cursor: not-allowed;
 }
 
 .players-area {
@@ -274,6 +322,16 @@
   justify-content: center;
   min-height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .winner-announcement {
@@ -287,10 +345,13 @@
 }
 
 .winner-announcement h1 {
-  font-size: 3rem;
+  font-size: clamp(1.5rem, 5vw, 3rem);
   margin: 0 0 1rem;
   color: #667eea;
   animation: bounce 1s ease infinite;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .winner-announcement .winning-score {
@@ -316,6 +377,19 @@
   flex-direction: column;
   gap: 0.75rem;
   margin-bottom: 2rem;
+}
+
+/* Bot name colors by difficulty */
+.bot-name-easy {
+  color: #059669 !important;
+}
+
+.bot-name-medium {
+  color: #d97706 !important;
+}
+
+.bot-name-hard {
+  color: #dc2626 !important;
 }
 
 .score-item {

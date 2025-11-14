@@ -35,7 +35,8 @@ const Tank = ({
   emojiQueue,
   onEmojiClick,
   highlightedCardIds = new Set(),
-  animatingCardIds = new Set()
+  animatingCardIds = new Set(),
+  isLocalMode = false
 }) => {
   const [visibleEmojis, setVisibleEmojis] = useState([]);
 
@@ -111,11 +112,11 @@ const Tank = ({
       <div className="tank-header">
         <div className="player-info">
           <div className={`player-name ${isBot ? `bot-name-${botDifficulty || 'medium'}` : ''}`}>
-            {playerName}
+            {isBot && '🤖 '}{playerName}
           </div>
-          {isCurrentTurn && <div className="turn-indicator">TURN</div>}
-          {isCurrentPlayer && <div className="you-badge">YOU</div>}
+          {isCurrentPlayer && !isLocalMode && <div className="you-badge">YOU</div>}
           {isBot && <div className={`bot-indicator ${getBotIndicatorClass()}`}>BOT</div>}
+          {isCurrentTurn && <div className="turn-indicator">TURN</div>}
 
           {/* Floating emojis */}
           {visibleEmojis.map((item, index) => {

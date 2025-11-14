@@ -115,6 +115,14 @@
   font-weight: 900;
 }
 
+.tank-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  min-height: 130px;
+  align-items: flex-start;
+}
+
 .tank-cards {
   display: flex;
   flex-wrap: wrap;
