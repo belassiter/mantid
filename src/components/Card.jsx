@@ -16,7 +16,7 @@ const COLOR_ORDER = ['pink', 'red', 'orange', 'yellow', 'green', 'blue', 'purple
 
 const Card = ({ card, showBack = false, size = 'medium' }) => {
   if (!card) {
-    return <div className={`card empty ${size}`}>?</div>;
+    return <div className={`card empty ${size}`} data-card-id={null} data-card-face="empty">?</div>;
   }
 
   if (showBack) {
@@ -27,7 +27,7 @@ const Card = ({ card, showBack = false, size = 'medium' }) => {
       }) : [];
 
     return (
-      <div className={`card back ${size}`}>
+      <div className={`card back ${size}`} data-card-id={card.id} data-card-face="back">
         <div className="back-colors">
           {sortedBackColors.map((color, index) => (
             <div
@@ -44,7 +44,7 @@ const Card = ({ card, showBack = false, size = 'medium' }) => {
   }
 
   return (
-    <div className={`card front ${size} ${card.color}`}>
+    <div className={`card front ${size} ${card.color}`} data-card-id={card.id} data-card-face="front">
       <div className="card-color">{card.color}</div>
     </div>
   );

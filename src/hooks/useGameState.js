@@ -12,6 +12,8 @@ import {
   arrayRemove,
   increment 
 } from 'firebase/firestore';
+import { compareGameState } from '../utils/compareGameState';
+import { ALLOW_SERVER_OVERWRITE, LOG_SERVER_DIFFS } from '../config';
 import { 
   generateDeck, 
   shuffleDeck, 
@@ -19,6 +21,7 @@ import {
   findMatchingCards,
   generateRoomCode 
 } from '../utils/cardLogic';
+import { performScore as serverPerformScore, performSteal as serverPerformSteal } from '../services/gameService';
 import { generateBotName, BOT_DIFFICULTIES } from '../utils/botLogic';
 
 export const useGameState = (gameId) => {
@@ -27,6 +30,7 @@ export const useGameState = (gameId) => {
   const [error, setError] = useState(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState(null);
+  const [pendingDiffs, setPendingDiffs] = useState(null);
 
   // Apply pending update when animation completes
   // NOTE: We no longer auto-apply pending updates when isAnimating flips to
@@ -49,15 +53,56 @@ export const useGameState = (gameId) => {
       (snapshot) => {
         if (snapshot.exists()) {
           const newGameState = { id: snapshot.id, ...snapshot.data() };
-          
-          // If animating, buffer the update; otherwise apply immediately
-          if (isAnimating) {
-            console.log('🔒 Buffering game state update (animation in progress)');
-            setPendingUpdate(newGameState);
-          } else {
+
+          // Initial load: accept server snapshot so UI has something to render.
+          if (!game) {
+            console.log('Initial load: accepting server snapshot');
             setGame(newGameState);
+            setLoading(false);
+            return;
           }
-          
+
+          // Compare server snapshot to current client-visible state
+          const diffs = compareGameState(game, newGameState) || [];
+
+          if (diffs.length > 0) {
+            // Always buffer the incoming server snapshot so it can be inspected.
+            // IMPORTANT: If diffs are present, we DO NOT change the client-visible
+            // `game` state under any circumstances. The client must explicitly
+            // accept or merge pending updates via the exposed APIs.
+            setPendingUpdate(newGameState);
+            setPendingDiffs(diffs);
+
+            if (LOG_SERVER_DIFFS) {
+              console.error('Server snapshot differs from client state — buffering and logging diffs', diffs);
+              // For debugging, include both states (avoid dumping huge objects in prod)
+              console.debug('Client state (short):', {
+                drawPileLen: (game.drawPile || []).length,
+                topCard: (game.drawPile || []).length ? game.drawPile[game.drawPile.length - 1].id : null,
+                currentPlayerIndex: game.currentPlayerIndex
+              });
+              console.debug('Server state (short):', {
+                drawPileLen: (newGameState.drawPile || []).length,
+                topCard: (newGameState.drawPile || []).length ? newGameState.drawPile[newGameState.drawPile.length - 1].id : null,
+                currentPlayerIndex: newGameState.currentPlayerIndex
+              });
+            }
+
+            console.log('Server snapshot buffered; not overwriting client state (diffs present)');
+          } else {
+            // No diffs — mirror server snapshot so client stays consistent
+            // (still respect ALLOW_SERVER_OVERWRITE in case the policy changes)
+            if (ALLOW_SERVER_OVERWRITE) {
+              setGame(newGameState);
+            } else {
+              // No functional changes detected; nothing to do
+              // But keep client state in sync for derived values if necessary
+              // (we intentionally avoid a setGame here to prevent accidental overwrites)
+              console.debug('Server snapshot identical to client state; skipping overwrite per policy');
+              setPendingDiffs([]);
+            }
+          }
+
           setLoading(false);
         } else {
           setError('Game not found');
@@ -101,9 +146,57 @@ export const useGameState = (gameId) => {
       console.log('📦 Applying buffered game state update (applyPendingUpdate)');
       setGame(pendingUpdate);
       setPendingUpdate(null);
+      setPendingDiffs(null);
       return true;
     } catch (error) {
       console.error('Error applying pending update:', error);
+      return false;
+    }
+  };
+
+  /**
+   * Apply a selective patch produced by patchFn(client, server).
+   * patchFn should return a new game object to be made visible to the UI.
+   * This allows the client to merge only the fields it wants to accept from
+   * the server snapshot, preserving locally controlled presentation state.
+   */
+  const applyPendingUpdateSelective = (patchFn) => {
+    if (!pendingUpdate) return false;
+    if (typeof patchFn !== 'function') return false;
+    try {
+      const merged = patchFn(game, pendingUpdate);
+      if (!merged) return false;
+      setGame(merged);
+      setPendingUpdate(null);
+      setPendingDiffs(null);
+      return true;
+    } catch (err) {
+      console.error('Error in applyPendingUpdateSelective:', err);
+      return false;
+    }
+  };
+
+  /**
+   * Convenience helper: accept a named list of top-level fields from the
+   * buffered server snapshot and merge them into the client-visible state.
+   * Example: acceptServerFields(['players','drawPile'])
+   */
+  const acceptServerFields = (fields = []) => {
+    if (!pendingUpdate) return false;
+    if (!Array.isArray(fields) || fields.length === 0) return false;
+    try {
+      const merged = { ...game };
+      fields.forEach((f) => {
+        if (pendingUpdate.hasOwnProperty(f)) {
+          merged[f] = pendingUpdate[f];
+        }
+      });
+      setGame(merged);
+      setPendingUpdate(null);
+      setPendingDiffs(null);
+      return true;
+    } catch (err) {
+      console.error('Error in acceptServerFields:', err);
       return false;
     }
   };
@@ -113,7 +206,13 @@ export const useGameState = (gameId) => {
     loading,
     error,
     setIsAnimating, // Expose animation control to components
-    applyPendingUpdate
+    applyPendingUpdate,
+    // Expose pending buffer and helpers so UI/coordinator can inspect and
+    // selectively merge server changes into the client-visible state.
+    pendingUpdate,
+    pendingDiffs,
+    applyPendingUpdateSelective,
+    acceptServerFields
   };
 };
 
@@ -414,140 +513,27 @@ export const startGame = async (gameId, game) => {
 };
 
 // Perform a Score action
-export const performScore = async (gameId, game, playerIndex) => {
+// Server-authoritative performScore: forward to cloud function so server is
+// the single source of truth for game rules and state changes. The client
+// remains responsible for presentation only.
+export const performScore = async (gameId, botPlayerId = null, actionId = null) => {
   try {
-    const gameRef = doc(db, 'games', gameId);
-    const drawPile = [...game.drawPile];
-    
-    if (drawPile.length === 0) {
-      throw new Error('Draw pile is empty');
-    }
-
-    const drawnCard = drawPile.pop();
-    const player = game.players[playerIndex];
-    const updatedTank = [...player.tank, drawnCard];
-    
-    // Check for matches
-    const matchingCards = findMatchingCards(updatedTank, drawnCard.color);
-    
-    let newTank = updatedTank;
-    let scoreIncrement = 0;
-    
-    if (matchingCards.length > 1) {
-      // Match found! Move to score pile
-      scoreIncrement = matchingCards.length;
-      newTank = updatedTank.filter(card => !matchingCards.includes(card));
-    }
-
-    // Update player
-    const updatedPlayers = game.players.map((p, idx) => {
-      if (idx === playerIndex) {
-        return {
-          ...p,
-          tank: newTank,
-          scoreCount: p.scoreCount + scoreIncrement
-        };
-      }
-      return p;
-    });
-
-    // Get new top card back (send full card, client keeps front secret until flip)
-    const topCardBack = drawPile.length > 0 
-      ? drawPile[drawPile.length - 1]
-      : null;
-
-    // Move to next player
-    const nextPlayerIndex = (playerIndex + 1) % game.players.length;
-
-    await updateDoc(gameRef, {
-      players: updatedPlayers,
-      drawPile: drawPile,
-      topCardBack: topCardBack,
-      currentPlayerIndex: nextPlayerIndex,
-      lastAction: {
-        player: player.name,
-        action: 'score',
-        result: matchingCards.length > 1 ? 'success' : 'no match',
-        color: drawnCard.color,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    console.error('Error performing score:', error);
-    throw error;
+    return await serverPerformScore(gameId, botPlayerId, actionId);
+  } catch (err) {
+    console.error('Error delegating performScore to server:', err);
+    throw err;
   }
 };
 
 // Perform a Steal action
-export const performSteal = async (gameId, game, playerIndex, targetIndex) => {
+// Server-authoritative performSteal: delegate to cloud function. Accepts
+// targetPlayerId and optional botPlayerId/actionId for bot executions.
+export const performSteal = async (gameId, targetPlayerId, botPlayerId = null, actionId = null) => {
   try {
-    const gameRef = doc(db, 'games', gameId);
-    const drawPile = [...game.drawPile];
-    
-    if (drawPile.length === 0) {
-      throw new Error('Draw pile is empty');
-    }
-
-    const drawnCard = drawPile.pop();
-    const targetPlayer = game.players[targetIndex];
-    const updatedTargetTank = [...targetPlayer.tank, drawnCard];
-    
-    // Check for matches in target's tank
-    const matchingCards = findMatchingCards(updatedTargetTank, drawnCard.color);
-    
-    const currentPlayer = game.players[playerIndex];
-    let newCurrentTank = [...currentPlayer.tank];
-    let newTargetTank = updatedTargetTank;
-    let stealSuccess = false;
-    
-    if (matchingCards.length > 1) {
-      // Match found! Steal to current player's tank
-      stealSuccess = true;
-      newCurrentTank = [...newCurrentTank, ...matchingCards];
-      newTargetTank = updatedTargetTank.filter(card => !matchingCards.includes(card));
-    }
-
-    // Update players
-    const updatedPlayers = game.players.map((p, idx) => {
-      if (idx === playerIndex) {
-        return { ...p, tank: newCurrentTank };
-      }
-      if (idx === targetIndex) {
-        return { ...p, tank: newTargetTank };
-      }
-      return p;
-    });
-
-    // Get new top card back (send full card, client keeps front secret until flip)
-    const topCardBack = drawPile.length > 0 
-      ? drawPile[drawPile.length - 1]
-      : null;
-
-    // Move to next player (or stay if 2-player and successful steal)
-    let nextPlayerIndex = (playerIndex + 1) % game.players.length;
-    
-    // Chain steal rule: Only in 2-player games, successful steals get another turn
-    if (game.players.length === 2 && stealSuccess) {
-      nextPlayerIndex = playerIndex; // Stay on current player
-    }
-
-    await updateDoc(gameRef, {
-      players: updatedPlayers,
-      drawPile: drawPile,
-      topCardBack: topCardBack,
-      currentPlayerIndex: nextPlayerIndex,
-      lastAction: {
-        player: currentPlayer.name,
-        action: 'steal',
-        target: targetPlayer.name,
-        result: stealSuccess ? 'success' : 'no match',
-        color: drawnCard.color,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    console.error('Error performing steal:', error);
-    throw error;
+    return await serverPerformSteal(gameId, targetPlayerId, botPlayerId, actionId);
+  } catch (err) {
+    console.error('Error delegating performSteal to server:', err);
+    throw err;
   }
 };
 

@@ -16,7 +16,8 @@ export class AnimationPlayer {
       flippingCard: null,
       isFadingFlippedCard: false,
       displayPlayerIndex: null,
-      isFlipComplete: false
+      isFlipComplete: false,
+      flipPhase: 'none' // 'none' | 'half1' | 'half2' | 'held'
     };
     this.timeouts = [];
     this.hintQueue = []; // Queue for pending animation hints
@@ -44,32 +45,39 @@ export class AnimationPlayer {
    * Play animation based on server hint
    */
   playHint(hint, currentPlayerIndex) {
-    if (!hint || !hint.sequence) return;
+    if (!hint || !hint.sequence) return Promise.resolve();
 
-    // Check if optimistic flip is in progress
-    const isOptimisticFlipActive = this.isAnimating && (
-      this.currentAnimationState.isFlipping || 
-      this.currentAnimationState.isFlipComplete || 
-      this.currentAnimationState.isFadingFlippedCard
-    );
-    
-    if (isOptimisticFlipActive) {
+    // Compute remaining optimistic flip timeline using configured durations
+    const now = performance.now();
+    const totalFlipTime = this.durations.flipMs + this.durations.holdMs + this.durations.fadeMs;
+    const elapsed = this.flipStartTime ? (now - this.flipStartTime) : 0;
+    const remaining = Math.max(0, totalFlipTime - elapsed);
+
+    // If optimistic flip timeline still has time left, queue the server hint
+    // to play after the optimistic flip finishes. This is more robust than
+    // relying solely on flag values which may race with rendering.
+    if (this.flipStartTime && remaining > 20) {
       console.log('🔗 Server match result arrived during optimistic flip, queueing...');
-      // Queue the match result to play after flip completes
+      console.log(`    flipStart=${this.flipStartTime.toFixed(1)} now=${now.toFixed(1)} elapsed=${elapsed.toFixed(0)} totalFlip=${totalFlipTime} remaining=${remaining.toFixed(0)}`);
       this.queueMatchResultAfterFlip(hint, currentPlayerIndex);
-      return;
+      // Return a promise that resolves when the queued hint finishes
+      return new Promise((resolve) => { this._hintResolve = resolve; });
     }
 
-    // No optimistic flip active - play normally
+    // No optimistic flip active (or flip already finished) - play immediately
     this.cleanup();
     this.isAnimating = true;
-
-    // Indicate animation in progress; the game state buffer will keep the
-    // authoritative game doc from applying mid-animation so we don't need to
-    // override the displayed player index here.
     this.updateState({ isAnimating: true });
-
+    // Ensure the UI shows the player who performed the action during the
+    // server-driven animation. Coordinator passes `previousPlayerIndex` as
+    // currentPlayerIndex so we display the acting player until animation
+    // completes.
+    if (typeof currentPlayerIndex === 'number') {
+      this.updateState({ displayPlayerIndex: currentPlayerIndex });
+    }
+    console.log('▶️ Playing server hint immediately:', hint.sequence);
     this.playMatchResult(hint);
+    return new Promise((resolve) => { this._hintResolve = resolve; });
   }
 
   /**
@@ -79,9 +87,8 @@ export class AnimationPlayer {
     // Calculate remaining time in optimistic flip sequence
     const now = performance.now();
     const elapsed = this.flipStartTime ? (now - this.flipStartTime) : 0;
-    
-    // Timeline: 0-2600ms flip, 2600-4600ms hold, 4600-5100ms fade
-    const totalFlipTime = 5100;
+    // Timeline: flipMs flip, holdMs hold, fadeMs fade
+    const totalFlipTime = this.durations.flipMs + this.durations.holdMs + this.durations.fadeMs;
     const remainingTime = Math.max(0, totalFlipTime - elapsed);
     
     console.log(`⏱️ Animation will complete in ${remainingTime.toFixed(0)}ms (after flip)`);
@@ -110,6 +117,11 @@ export class AnimationPlayer {
    * Play match result animation (highlights, scores)
    */
   playMatchResult(hint) {
+    try {
+      console.log('🔔 playMatchResult invoked with sequence:', hint.sequence, 'hint:', hint);
+    } catch (e) {
+      // ignore logging failures
+    }
     switch (hint.sequence) {
       case 'SCORE_SUCCESS':
         this.playScoreSuccess(hint);
@@ -176,54 +188,106 @@ export class AnimationPlayer {
     // Signal flip state; do not mutate displayPlayerIndex here. The
     // `useGameState` hook buffers incoming game updates while `isAnimating`
     // is true so the UI will not apply turn changes until the animation ends.
+    // Freeze display to the acting player so turn highlight does not jump
+    // while the optimistic flip is active.
     this.updateState({
       isFlipping: true,
       flippingCard: card,
       isAnimating: true
     });
+    // Indicate we're in the first-half of the flip. The DOM will start the
+    // first-half animation; GameBoard will listen for animationend and call
+    // `notifyFlipHalf1()` which will progress the timeline. We also set a
+    // fallback timeout in case the animationend isn't fired (e.g., devtools pause).
+    this.updateState({ flipPhase: 'half1', isFlipComplete: false });
 
-    // After flip CSS animation completes (flipMs), hold card visible
-    const t0a = setTimeout(() => {
-      this.updateState({
-        isFlipping: false,
-        isFlipComplete: true
-      });
-    }, 2600);
-    this.timeouts.push(t0a);
+    if (typeof currentPlayerIndex === 'number') {
+      this.updateState({ displayPlayerIndex: currentPlayerIndex });
+    }
 
-    // After holding for configured holdMs (flipMs + holdMs total), start fade (fadeMs)
-    const t0b = setTimeout(() => {
-      this.updateState({
-        isFlipComplete: false,
-        isFadingFlippedCard: true
-      });
-    }, this.durations.flipMs + this.durations.holdMs);
-    this.timeouts.push(t0b);
+    // Fallback in case animationend does not fire. This will call
+    // notifyFlipHalf1 which advances the state to the hold/fade timeline.
+    const fallback = setTimeout(() => {
+      try {
+        console.warn('Fallback: animationend not received, forcing half1 completion');
+        this.notifyFlipHalf1();
+      } catch (e) { /* ignore */ }
+    }, this.durations.flipMs + 100); // small buffer
+    this.timeouts.push(fallback);
 
-    // After fade completes (flipMs + holdMs + fadeMs total) mark that the optimistic flip's
-    // fade timeline has finished. Do NOT remove the overlay (flippingCard)
-    // here. Keeping the overlay in the DOM (with opacity 0) prevents a
-    // single-frame flash if the authoritative game state or piled cards
-    // update while the server-side match animation still runs. The overlay
-    // will be cleared by complete() after the server hint animations finish.
-    const t0c = setTimeout(() => {
-      console.log('⚡ Optimistic flip fade finished; holding overlay until server animations complete');
-      // Ensure the overlay is faded out visually
+    // Create and store the optimistic flip promise so other callers (e.g.,
+    // the coordinator) can await the same timeline even if the flip was
+    // started outside the coordinator.
+    this._optimisticFlipPromise = new Promise((resolve) => {
+      this._optimisticFlipResolve = resolve;
+    });
+    return this._optimisticFlipPromise;
+  }
+
+  /**
+   * Called by the UI when the first-half animation completes (90deg).
+   * Advances the player state into the hold -> fade timeline and resolves
+   * the optimistic flip promise after fade completes. This method is
+   * idempotent (safe to call multiple times).
+   */
+  notifyFlipHalf1() {
+    if (!this.currentAnimationState || this.currentAnimationState.flipPhase !== 'half1') {
+      // Already processed or not in half1; ignore
+      return;
+    }
+    console.log('⚡ Flip half1 reached (90deg) - swapping to front and starting hold');
+    // Clear any pending fallback
+    this.cleanup();
+
+    // Show front and mark phase half2
+    this.updateState({ isFlipping: false, isFlipComplete: true, flipPhase: 'half2' });
+
+    // Start hold timer, then fade
+    const tHold = setTimeout(() => {
+      console.log('⚡ Hold finished; starting fade');
+      this.updateState({ isFlipComplete: false, isFadingFlippedCard: true, flipPhase: 'held' });
+    }, this.durations.holdMs);
+    this.timeouts.push(tHold);
+
+    // After fade completes, resolve optimistic flip promise (but keep overlay until complete())
+    const tFade = setTimeout(() => {
+      console.log('⚡ Optimistic flip fade finished; optimistic promise resolving, overlay remains until server animations complete');
       this.updateState({ isFadingFlippedCard: true });
-      // Do not clear flippingCard here; complete() will clear it once
-      // server-side animations (if any) are done.
-      // Resolve optimistic flip promise here so coordinator can continue
       if (this._optimisticFlipResolve) {
         try { this._optimisticFlipResolve(); } catch { /* ignore */ }
         this._optimisticFlipResolve = null;
       }
-    }, this.durations.flipMs + this.durations.holdMs + this.durations.fadeMs);
-    this.timeouts.push(t0c);
+    }, this.durations.holdMs + this.durations.fadeMs);
+    this.timeouts.push(tFade);
+  }
 
-    // Return a promise that resolves when the optimistic flip fade timeline ends
-    return new Promise((resolve) => {
-      this._optimisticFlipResolve = resolve;
-    });
+  /**
+   * Start the optimistic flip immediately and return a small acknowledgement
+   * promise that resolves once the flip state has been set. This is useful
+   * for callers that need to synchronously start the visual flip and then
+   * immediately call the server without waiting for the full flip timeline.
+   */
+  startOptimisticFlipImmediate(card, currentPlayerIndex = null) {
+    // Call the full playOptimisticFlip which sets up timeouts and state
+    try {
+      // Ensure we capture the optimistic flip promise when starting immediately
+      // so coordinator can await it later if needed.
+      const p = this.playOptimisticFlip(card, currentPlayerIndex);
+      // Return an ACK promise that resolves immediately to let callers proceed
+      // while the optimistic flip promise continues in the background.
+      return Promise.resolve(p);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  /**
+   * Return a promise that resolves when the current optimistic flip timeline
+   * completes, or a resolved promise if no optimistic flip is active.
+   */
+  awaitOptimisticFlip() {
+    if (this._optimisticFlipPromise) return this._optimisticFlipPromise;
+    return Promise.resolve();
   }
 
   /**
@@ -287,21 +351,7 @@ export class AnimationPlayer {
     this.timeouts.push(t);
   }
 
-  /**
-   * Play a server-provided hint and return a promise that resolves when
-   * the server-side hint animation completes (i.e., when complete() runs).
-   */
-  playHint(hint, previousPlayerIndex = null) {
-    // If a match result is already queued, we'll let queueMatchResultAfterFlip
-    // handle timing. Otherwise play immediately and return a promise that
-    // resolves once complete() is called.
-    if (!hint) return Promise.resolve();
-    // Start playing the match result now
-    this.playMatchResult(hint);
-    return new Promise((resolve) => {
-      this._hintResolve = resolve;
-    });
-  }
+  
 
   /**
    * Update animation state and notify React

@@ -100,8 +100,20 @@ async function processAction({ gameId, action, targetPlayerId, userId, isBot = f
         throw new Error('Not bot\'s turn');
       }
     } else if (game.isLocalMode) {
-      // In local mode, trust the client - no auth validation needed
-      // The client controls all players (humans and bots)
+      // Local-mode: multiple players share one browser/session but the game
+      // is still server-authoritative. Only allow an authenticated "local
+      // controller" (the creator) to perform actions for local games. We
+      // detect the controller by the player id naming convention used by the
+      // client: human player ids for local games are prefixed with the
+      // creator's uid, e.g. `<uid>-local-0`.
+      if (!userId) {
+        throw new Error('Unauthenticated - cannot perform action in local mode');
+      }
+      const isLocalController = game.players.some(p => typeof p.id === 'string' && p.id.startsWith(`${userId}-local-`));
+      if (!isLocalController) {
+        throw new Error('Not authorized to perform actions in this local game');
+      }
+      // Use server currentPlayerIndex (client drives which local player is active)
       playerIndex = game.currentPlayerIndex;
     } else {
       // Regular multiplayer mode - player must match their own ID
@@ -176,6 +188,12 @@ exports.performAction = functions.https.onCall(async (data, context) => {
       isBot: isBotCall,
       actionId: actionId || null
     });
+    // Log the action result and animation hint for debugging steal/score mismatches
+    try {
+      console.log('performAction result', { gameId, action, userId, isBotCall }, 'animationHint=', result.animationHint);
+    } catch (logErr) {
+      console.warn('Failed to log performAction result', logErr);
+    }
     return result;
   } catch (error) {
     console.error('Error performing action:', error);
@@ -321,34 +339,39 @@ function executeStealAction(game, playerIndex, targetIndex) {
   
   let affectedCardIds = [drawnCard.id];
 
-  // Update both tanks
+  // Update both tanks: on successful steal, move matching cards into the
+  // acting player's tank and remove them from the target's tank. This
+  // preserves the original Mantis rule: successful steals transfer cards
+  // to the stealer's tank (NOT to the score pile).
+  let newPlayerTank = [...player.tank];
+  let newTargetTank = updatedTargetTank;
+
+  if (isSuccess) {
+    newPlayerTank = [...player.tank, ...matchingCards];
+    newTargetTank = updatedTargetTank.filter(card => !matchingCards.some(m => m.id === card.id));
+    affectedCardIds = matchingCards.map(c => c.id);
+  }
+
   const updatedPlayers = game.players.map((p, idx) => {
     if (idx === targetIndex) {
-      // Target player loses matching cards or gains the drawn card
-      const newTank = isSuccess
-        ? p.tank.filter(card => !matchingCards.some(m => m.id === card.id))
-        : updatedTargetTank;
-      return { ...p, tank: newTank };
+      return { ...p, tank: newTargetTank };
     }
-    if (idx === playerIndex && isSuccess) {
-      // Acting player gains score
-      return {
-        ...p,
-        scoreCount: p.scoreCount + matchingCards.length
-      };
+    if (idx === playerIndex) {
+      return { ...p, tank: newPlayerTank };
     }
     return p;
   });
-
-  if (isSuccess) {
-    affectedCardIds = matchingCards.map(c => c.id);
-  }
 
   const topCardBack = drawPile.length > 0 
     ? drawPile[drawPile.length - 1] // Send full card (client keeps front secret until flip)
     : null;
 
-  const nextPlayerIndex = getNextPlayerIndex(playerIndex, game.players.length);
+  // Move to next player. Special case: in 2-player games a successful
+  // steal grants the acting player another turn (chain steal rule).
+  let nextPlayerIndex = getNextPlayerIndex(playerIndex, game.players.length);
+  if (game.players.length === 2 && isSuccess) {
+    nextPlayerIndex = playerIndex; // stay on current player
+  }
 
   const animationHint = {
     sequence: isSuccess ? 'STEAL_SUCCESS' : 'STEAL_FAIL',
@@ -359,6 +382,21 @@ function executeStealAction(game, playerIndex, targetIndex) {
     timestamp: Date.now()
     // Note: drawnCard flip is handled client-side optimistically
   };
+
+  // Debug log for steal action outcome to help diagnose client-side "steal looked like a score" reports
+  try {
+    console.log('executeStealAction', {
+      playerId: player.id,
+      targetPlayerId: targetPlayer.id,
+      sequence: animationHint.sequence,
+      isSuccess,
+      affectedCardIds,
+      color: drawnCard.color,
+      nextPlayerIndex
+    });
+  } catch (e) {
+    console.warn('Failed to log executeStealAction debug info', e);
+  }
 
   const updates = {
     players: updatedPlayers,

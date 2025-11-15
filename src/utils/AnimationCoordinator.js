@@ -80,12 +80,29 @@ export class AnimationCoordinator {
         // the hold duration actually takes effect. If the animation player
         // fails to resolve (bug), we catch and continue to avoid blocking
         // forever.
-        if (typeof this.animationPlayer.playOptimisticFlip === 'function') {
+        if (typeof this.animationPlayer.awaitOptimisticFlip === 'function') {
           try {
-            const p = this.animationPlayer.playOptimisticFlip(payload.cardBack, payload.playerIndex);
-            await p; // await the full optimistic flip timeline
+            // If the optimistic flip was already started (e.g., immediate start),
+            // await the existing flip promise. Otherwise, fall back to starting
+            // the flip via playOptimisticFlip and await it.
+            if (this.animationPlayer._optimisticFlipPromise) {
+              await this.animationPlayer.awaitOptimisticFlip();
+            } else if (typeof this.animationPlayer.playOptimisticFlip === 'function') {
+              const p = this.animationPlayer.playOptimisticFlip(payload.cardBack, payload.playerIndex);
+              await p;
+            }
           } catch (err) {
             console.warn('START_OPTIMISTIC_FLIP: optimistic flip promise rejected or errored', err);
+          }
+        } else {
+          // Older API: try to call playOptimisticFlip directly
+          if (typeof this.animationPlayer.playOptimisticFlip === 'function') {
+            try {
+              const p = this.animationPlayer.playOptimisticFlip(payload.cardBack, payload.playerIndex);
+              await p;
+            } catch (err) {
+              console.warn('START_OPTIMISTIC_FLIP fallback: optimistic flip errored', err);
+            }
           }
         }
         break;
@@ -95,7 +112,10 @@ export class AnimationCoordinator {
         try {
           if (typeof this.animationPlayer.playHint === 'function') {
             const p = this.animationPlayer.playHint(payload.hint, payload.previousPlayerIndex);
-            await this._withTimeout(p, this.defaultTimeout, abort);
+            // Await the player's promise fully; server hints should be serialized
+            // with optimistic flips and we don't want a short coordinator timeout
+            // to prematurely advance the sequence.
+            await p;
           }
         } catch {
           // ignore and continue

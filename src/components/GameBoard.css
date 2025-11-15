@@ -100,6 +100,10 @@
   perspective: 1000px;
   position: relative;
   display: inline-block;
+  /* Ensure the flip container creates a stacking context above other
+     UI elements used during animations. This helps keep flip overlays
+     and animated cards visible above nearby content. */
+  z-index: 9000;
 }
 
 .card-flip-container > *:not(:first-child) {
@@ -108,30 +112,79 @@
   left: 0;
 }
 
+/* Temporary debug: show both top and next card stacked exactly on top of each
+  other (100% overlap) so the right slot is directly underneath the left
+  slot. This makes it easy to verify perfect alignment between top and next
+  card during development. */
+.dual-draw-compare {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  white-space: nowrap; /* avoid wrapping into multiple rows */
+}
+.dual-draw-compare .compare-card {
+  /* Match the real `.card.large` width so the compare slot doesn't add extra
+     horizontal space. Keep box-sizing and no padding so the slot equals the
+     rendered card width. */
+  flex: 0 0 100px; /* match `.card.large { width: 100px }` */
+  max-width: 100px;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+.dual-draw-compare .compare-card.left {
+  z-index: 2; /* left (top card) rendered above the right */
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+}
+.dual-draw-compare .compare-card.right {
+  margin-left: -100px; /* overlap 100% of the 100px slot so the cards align */
+  z-index: 1;
+  opacity: 0.95;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Force card sizing inside the debug compare to match real card metrics
+   and avoid any container padding/margin that can produce a larger box */
+/* (debug sizing overrides removed — revert to normal Card styles) */
+
 .card-flip-inner {
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
+  /* Place the flipping inner above the base card within the container */
+  z-index: 9001;
+  position: relative;
 }
 
-.card-flip-inner.flipping {
-  animation: flipCard 2.6s ease-in-out;
+/* First-half animation: 0 -> 90deg. Duration controlled by --flip-half-ms */
+.card-flip-inner.flipping-half1 {
+  animation-name: flipHalf1;
+  animation-duration: var(--flip-half-ms, 1300ms);
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: forwards;
 }
 
-.card-flip-inner.flip-complete {
-  transform: rotateY(180deg); /* Hold card rotated after flip animation */
+/* Second-half animation: 90deg -> 180deg */
+.card-flip-inner.flipping-half2 {
+  animation-name: flipHalf2;
+  animation-duration: var(--flip-half-ms, 1300ms);
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: forwards;
 }
 
-@keyframes flipCard {
-  0% {
-    transform: rotateY(0deg);
-  }
-  23% {
-    transform: rotateY(180deg);
-  }
-  100% {
-    transform: rotateY(180deg);
-  }
+/* Held state during hold/fade where front remains visible and overlay may fade */
+.card-flip-inner.flip-held {
+  transform: rotateY(180deg);
+}
+
+@keyframes flipHalf1 {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(90deg); }
+}
+
+@keyframes flipHalf2 {
+  from { transform: rotateY(90deg); }
+  to   { transform: rotateY(180deg); }
 }
 
 .card-flip-back,
@@ -151,13 +204,65 @@
   transform: rotateY(180deg);
 }
 
+/* Ensure the inner Card components inside the flip faces do not show their
+   backfaces and are not affected by hover transforms while the overlay is
+   animating. This prevents mirrored/backward text and accidental hover
+   translations during the flip. */
+.card-flip-back .card,
+.card-flip-front .card {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform-style: preserve-3d;
+  pointer-events: none; /* disable hover effects while overlay active */
+}
+
+.card-flip-inner .card:hover {
+  transform: none; /* suppress hover translate while flipping */
+}
+
+/* During the first-half of the flip we want the underlying base card
+   (next card) to be visible instead of the overlay's back face (which
+   represents the top card back). Hide the overlay back during half1 so
+   the next card shows through. */
+.card-flip-inner.flipping-half1 .card-flip-back {
+  /* TEMPORARY: For inspection we make the overlay back visible during
+     the first-half so the top-card back rotation is visible. This hides
+     the next-card reveal and is intended for debugging only. Revert
+     this rule to restore the reveal-under behavior. */
+  visibility: visible;
+  opacity: 1;
+  pointer-events: none; /* keep overlay non-interactive during flip */
+}
+
+/* Ensure the front face is visible during half2/held */
+.card-flip-inner.flipping-half2 .card-flip-front,
+.card-flip-inner.flip-held .card-flip-front {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* During the second-half and the held/fade phase we must ensure the
+   overlay back is hidden so the fade only affects the front face. This
+   prevents a brief flash of the back face while the overlay fades out. */
+.card-flip-inner.flipping-half2 .card-flip-back,
+.card-flip-inner.flip-held .card-flip-back {
+  visibility: hidden;
+  opacity: 0;
+}
+
+/* Smooth front-face opacity transitions so the fade looks consistent */
+.card-flip-front {
+  transition: opacity 400ms ease-out;
+}
+
 /* Moving Card Animation */
 .moving-card {
   position: fixed;
   top: var(--start-y);
   left: var(--start-x);
   transform: translate(-50%, -50%);
-  z-index: 1000;
+  /* Put moving cards on top of most UI elements */
+  z-index: 10050;
   pointer-events: none;
   animation: moveToTank 0.8s ease-in-out forwards;
 }
