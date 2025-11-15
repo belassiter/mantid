@@ -31,6 +31,7 @@ export const useGameState = (gameId) => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState(null);
   const [pendingDiffs, setPendingDiffs] = useState(null);
+  const [usingPolling, setUsingPolling] = useState(false); // fallback when realtime fails
 
   // Apply pending update when animation completes
   // NOTE: We no longer auto-apply pending updates when isAnimating flips to
@@ -46,76 +47,150 @@ export const useGameState = (gameId) => {
     }
 
     const gameRef = doc(db, 'games', gameId);
-    
-    // Subscribe to real-time updates
-    const unsubscribe = onSnapshot(
-      gameRef,
-      (snapshot) => {
-        if (snapshot.exists()) {
-          const newGameState = { id: snapshot.id, ...snapshot.data() };
 
-          // Initial load: accept server snapshot so UI has something to render.
-          if (!game) {
-            console.log('Initial load: accepting server snapshot');
-            setGame(newGameState);
-            setLoading(false);
-            return;
-          }
+    let pollingInterval = null;
+    let retryRealtimeTimer = null;
 
-          // Compare server snapshot to current client-visible state
-          const diffs = compareGameState(game, newGameState) || [];
-
-          if (diffs.length > 0) {
-            // Always buffer the incoming server snapshot so it can be inspected.
-            // IMPORTANT: If diffs are present, we DO NOT change the client-visible
-            // `game` state under any circumstances. The client must explicitly
-            // accept or merge pending updates via the exposed APIs.
-            setPendingUpdate(newGameState);
-            setPendingDiffs(diffs);
-
-            if (LOG_SERVER_DIFFS) {
-              console.error('Server snapshot differs from client state — buffering and logging diffs', diffs);
-              // For debugging, include both states (avoid dumping huge objects in prod)
-              console.debug('Client state (short):', {
-                drawPileLen: (game.drawPile || []).length,
-                topCard: (game.drawPile || []).length ? game.drawPile[game.drawPile.length - 1].id : null,
-                currentPlayerIndex: game.currentPlayerIndex
-              });
-              console.debug('Server state (short):', {
-                drawPileLen: (newGameState.drawPile || []).length,
-                topCard: (newGameState.drawPile || []).length ? newGameState.drawPile[newGameState.drawPile.length - 1].id : null,
-                currentPlayerIndex: newGameState.currentPlayerIndex
-              });
-            }
-
-            console.log('Server snapshot buffered; not overwriting client state (diffs present)');
-          } else {
-            // No diffs — mirror server snapshot so client stays consistent
-            // (still respect ALLOW_SERVER_OVERWRITE in case the policy changes)
-            if (ALLOW_SERVER_OVERWRITE) {
-              setGame(newGameState);
-            } else {
-              // No functional changes detected; nothing to do
-              // But keep client state in sync for derived values if necessary
-              // (we intentionally avoid a setGame here to prevent accidental overwrites)
-              console.debug('Server snapshot identical to client state; skipping overwrite per policy');
-              setPendingDiffs([]);
-            }
-          }
-
-          setLoading(false);
-        } else {
-          setError('Game not found');
-          setLoading(false);
-        }
-      },
-      (err) => {
-        setError(err.message);
-        setLoading(false);
+    const stopPolling = () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
       }
-    );
+      setUsingPolling(false);
+    };
 
-    return () => unsubscribe();
+    const processServerState = (newGameState) => {
+      if (!newGameState) return;
+      // Initial load: accept server snapshot so UI has something to render.
+      if (!game) {
+        console.log('Initial load: accepting server snapshot');
+        setGame(newGameState);
+        setLoading(false);
+        return;
+      }
+
+      // Compare server snapshot to current client-visible state
+      const diffs = compareGameState(game, newGameState) || [];
+
+      if (diffs.length > 0) {
+        // Buffer incoming server snapshot for explicit apply later
+        setPendingUpdate(newGameState);
+        setPendingDiffs(diffs);
+
+        if (LOG_SERVER_DIFFS) {
+          console.error('Server snapshot differs from client state — buffering and logging diffs', diffs);
+          console.debug('Client state (short):', {
+            drawPileLen: (game.drawPile || []).length,
+            topCard: (game.drawPile || []).length ? game.drawPile[game.drawPile.length - 1].id : null,
+            currentPlayerIndex: game.currentPlayerIndex
+          });
+          console.debug('Server state (short):', {
+            drawPileLen: (newGameState.drawPile || []).length,
+            topCard: (newGameState.drawPile || []).length ? newGameState.drawPile[newGameState.drawPile.length - 1].id : null,
+            currentPlayerIndex: newGameState.currentPlayerIndex
+          });
+        }
+
+        console.log('Server snapshot buffered; not overwriting client state (diffs present)');
+      } else {
+        if (ALLOW_SERVER_OVERWRITE) {
+          setGame(newGameState);
+        } else {
+          console.debug('Server snapshot identical to client state; skipping overwrite per policy');
+          setPendingDiffs([]);
+        }
+      }
+
+      setLoading(false);
+    };
+
+    // Subscribe to real-time updates with error handling and polling fallback
+    let unsubscribe = null;
+    const startRealtime = () => {
+      try {
+        unsubscribe = onSnapshot(
+          gameRef,
+          (snapshot) => {
+            if (snapshot.exists()) {
+              processServerState({ id: snapshot.id, ...snapshot.data() });
+            } else {
+              setError('Game not found');
+              setLoading(false);
+            }
+          },
+          (err) => {
+            console.error('Realtime listener error, switching to polling fallback:', err);
+            setError(err.message || String(err));
+            // Start polling fallback
+            if (!pollingInterval) {
+              setUsingPolling(true);
+              pollingInterval = setInterval(async () => {
+                try {
+                  const snap = await getDoc(gameRef);
+                  if (snap.exists()) {
+                    processServerState({ id: snap.id, ...snap.data() });
+                  }
+                } catch (e) {
+                  console.warn('Polling getDoc failed:', e);
+                }
+              }, 2000); // poll every 2s
+
+              // Also attempt to re-establish realtime every 10s
+              retryRealtimeTimer = setInterval(() => {
+                try {
+                  console.log('Attempting to re-establish realtime listener...');
+                  // Try subscribing again; if it succeeds unsubscribe will be replaced
+                  const testUnsub = onSnapshot(gameRef, () => {}, (e) => {});
+                  // If we get here without exception assume it's ok and clear retry timer
+                  if (testUnsub) {
+                    console.log('Realtime resubscription appears supported; switching back to realtime');
+                    if (pollingInterval) {
+                      clearInterval(pollingInterval);
+                      pollingInterval = null;
+                    }
+                    setUsingPolling(false);
+                    clearInterval(retryRealtimeTimer);
+                    retryRealtimeTimer = null;
+                    // cleanup test subscription
+                    try { testUnsub(); } catch (ex) {}
+                    // restart the main realtime subscription
+                    if (unsubscribe) try { unsubscribe(); } catch (ex) {}
+                    startRealtime();
+                  }
+                } catch (e) {
+                  // ignore - will retry
+                }
+              }, 10000);
+            }
+          }
+        );
+      } catch (err) {
+        console.error('Failed to start realtime listener, falling back to polling:', err);
+        setError(String(err));
+        if (!pollingInterval) {
+          setUsingPolling(true);
+          pollingInterval = setInterval(async () => {
+            try {
+              const snap = await getDoc(gameRef);
+              if (snap.exists()) {
+                processServerState({ id: snap.id, ...snap.data() });
+              }
+            } catch (e) {
+              console.warn('Polling getDoc failed:', e);
+            }
+          }, 2000);
+        }
+      }
+    };
+
+    startRealtime();
+
+    return () => {
+      // cleanup
+      try { if (unsubscribe) unsubscribe(); } catch (e) {}
+      try { if (pollingInterval) clearInterval(pollingInterval); } catch (e) {}
+      try { if (retryRealtimeTimer) clearInterval(retryRealtimeTimer); } catch (e) {}
+    };
   }, [gameId]);
 
   /**
@@ -213,6 +288,7 @@ export const useGameState = (gameId) => {
     pendingDiffs,
     applyPendingUpdateSelective,
     acceptServerFields
+    ,usingPolling
   };
 };
 

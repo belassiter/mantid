@@ -18,7 +18,7 @@ const COLOR_MAP = {
   pink: '#ec4899'
 };
 
-const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setIsAnimating, applyPendingUpdate }) => {
+const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setIsAnimating, applyPendingUpdate, usingPolling = false }) => {
   const [showActionModal, setShowActionModal] = useState(false);
   const [animationState, setAnimationState] = useState({
     highlightedCardIds: new Set(),
@@ -665,6 +665,11 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
           <span>Room: {game.roomCode}</span>
         </div>
       </div>
+      {usingPolling && (
+        <div className="realtime-warning" role="status" aria-live="polite">
+          Realtime connection degraded — falling back to polling. Gameplay will continue but updates may be slightly delayed.
+        </div>
+      )}
 
       {/* Draw Pile with Action Buttons */}
       <div className="draw-pile-section">
