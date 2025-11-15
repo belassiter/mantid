@@ -11,7 +11,7 @@ function App() {
   const [userId, setUserId] = useState(null);
   const [playerName, setPlayerName] = useState('');
   const [gameId, setGameId] = useState(null);
-  const { game, loading, error } = useGameState(gameId);
+  const { game, loading, error, setIsAnimating, applyPendingUpdate } = useGameState(gameId);
 
   // Sign in anonymously on mount
   useEffect(() => {
@@ -184,6 +184,8 @@ function App() {
         currentUserId={game.isLocalMode ? game.players[0].id : userId}
         onEmojiSend={handleEmojiSend}
         isLocalMode={game.isLocalMode || false}
+        setIsAnimating={setIsAnimating}
+        applyPendingUpdate={applyPendingUpdate}
       />
       <Footer />
     </>

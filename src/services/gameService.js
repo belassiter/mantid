@@ -11,16 +11,19 @@ const functions = getFunctions(app);
 /**
  * Perform a game action (score or steal)
  */
-export const performAction = async (gameId, action, targetPlayerId = null) => {
+export const performAction = async (gameId, action, targetPlayerId = null, botPlayerId = null, actionId = null) => {
   const performActionFn = httpsCallable(functions, 'performAction');
   
   try {
-    const result = await performActionFn({
+    const payload = {
       gameId,
       action,
-      ...(targetPlayerId && { targetPlayerId })
-    });
-    
+      ...(targetPlayerId && { targetPlayerId }),
+      ...(botPlayerId && { botPlayerId }),
+      ...(actionId && { actionId })
+    };
+
+    const result = await performActionFn(payload);
     return result.data;
   } catch (error) {
     console.error('Action failed:', error);
@@ -31,13 +34,13 @@ export const performAction = async (gameId, action, targetPlayerId = null) => {
 /**
  * Perform score action
  */
-export const performScore = async (gameId) => {
-  return performAction(gameId, 'score');
+export const performScore = async (gameId, botPlayerId = null, actionId = null) => {
+  return performAction(gameId, 'score', null, botPlayerId, actionId);
 };
 
 /**
  * Perform steal action
  */
-export const performSteal = async (gameId, targetPlayerId) => {
-  return performAction(gameId, 'steal', targetPlayerId);
+export const performSteal = async (gameId, targetPlayerId, botPlayerId = null, actionId = null) => {
+  return performAction(gameId, 'steal', targetPlayerId, botPlayerId, actionId);
 };

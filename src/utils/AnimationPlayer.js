@@ -4,9 +4,10 @@
  */
 
 export class AnimationPlayer {
-  constructor(gameId) {
+  constructor(gameId, setIsAnimating) {
     this.gameId = gameId;
     this.isAnimating = false;
+    this.setIsAnimating = setIsAnimating; // Control function from useGameState
     this.onUpdate = null; // Callback to trigger React re-render
     this.currentAnimationState = {
       highlightedCardIds: new Set(),
@@ -19,7 +20,10 @@ export class AnimationPlayer {
     };
     this.timeouts = [];
     this.hintQueue = []; // Queue for pending animation hints
+    this.serverHintQueued = false;
     this.flipStartTime = null; // Track when flip animation started
+    this._optimisticFlipResolve = null;
+    this._hintResolve = null;
   }
 
   /**
@@ -53,11 +57,10 @@ export class AnimationPlayer {
     this.cleanup();
     this.isAnimating = true;
 
-    // Freeze the current player index during animations
-    this.updateState({
-      displayPlayerIndex: currentPlayerIndex,
-      isAnimating: true
-    });
+    // Indicate animation in progress; the game state buffer will keep the
+    // authoritative game doc from applying mid-animation so we don't need to
+    // override the displayed player index here.
+    this.updateState({ isAnimating: true });
 
     this.playMatchResult(hint);
   }
@@ -75,13 +78,24 @@ export class AnimationPlayer {
     const remainingTime = Math.max(0, totalFlipTime - elapsed);
     
     console.log(`⏱️ Animation will complete in ${remainingTime.toFixed(0)}ms (after flip)`);
-    
-    // After flip completes, just clean up - no additional animations needed
-    // The flip is the main visual feedback, and cards have already moved to final positions
+
+    // Queue the server hint so the optimistic flip doesn't get cleared early.
+    // When the flip finishes we'll play the match result which will call
+    // complete() as part of its normal lifecycle.
+    this.serverHintQueued = true;
+    this.hintQueue.push({ hint, currentPlayerIndex });
+
     const t = setTimeout(() => {
-      this.complete();
+      // Play the queued match result now that the optimistic flip timeline has passed
+      const item = this.hintQueue.shift();
+      if (item) {
+        this.playMatchResult(item.hint);
+      } else {
+        // No queued hint (shouldn't happen) — ensure we complete to clear
+        this.complete();
+      }
     }, remainingTime);
-    
+
     this.timeouts.push(t);
   }
 
@@ -138,21 +152,29 @@ export class AnimationPlayer {
    * Optimistic flip - immediately flip the top card before server response
    * Server hint will be queued and played after flip completes
    */
-  playOptimisticFlip(card) {
+  playOptimisticFlip(card, currentPlayerIndex = null) {
     this.flipStartTime = performance.now();
     console.log('⚡ OPTIMISTIC flip starting at', this.flipStartTime);
-    
+
     // Clear any existing animations
     this.cleanup();
     this.isAnimating = true;
-    
-    // Start flip immediately
+
+    // Signal to useGameState that animation is starting
+    if (this.setIsAnimating) {
+      this.setIsAnimating(true);
+      console.log('🔒 Animation starting - state updates will be buffered');
+    }
+
+    // Signal flip state; do not mutate displayPlayerIndex here. The
+    // `useGameState` hook buffers incoming game updates while `isAnimating`
+    // is true so the UI will not apply turn changes until the animation ends.
     this.updateState({
       isFlipping: true,
       flippingCard: card,
       isAnimating: true
     });
-    
+
     // After flip CSS animation completes (2600ms), hold card visible
     const t0a = setTimeout(() => {
       this.updateState({
@@ -161,7 +183,7 @@ export class AnimationPlayer {
       });
     }, 2600);
     this.timeouts.push(t0a);
-    
+
     // After holding for 2 seconds (4600ms total), start fade (500ms)
     const t0b = setTimeout(() => {
       this.updateState({
@@ -170,17 +192,31 @@ export class AnimationPlayer {
       });
     }, 4600); // 2600 + 2000
     this.timeouts.push(t0b);
-    
-    // After fade completes (5100ms total), clear flipping card
+
+    // After fade completes (5100ms total) mark that the optimistic flip's
+    // fade timeline has finished. Do NOT remove the overlay (flippingCard)
+    // here. Keeping the overlay in the DOM (with opacity 0) prevents a
+    // single-frame flash if the authoritative game state or piled cards
+    // update while the server-side match animation still runs. The overlay
+    // will be cleared by complete() after the server hint animations finish.
     const t0c = setTimeout(() => {
-      console.log('⚡ Optimistic flip complete, ready for server hint');
-      // Clear the flipping card so draw pile shows next card
-      this.updateState({
-        isFadingFlippedCard: false,
-        flippingCard: null
-      });
+      console.log('⚡ Optimistic flip fade finished; holding overlay until server animations complete');
+      // Ensure the overlay is faded out visually
+      this.updateState({ isFadingFlippedCard: true });
+      // Do not clear flippingCard here; complete() will clear it once
+      // server-side animations (if any) are done.
+      // Resolve optimistic flip promise here so coordinator can continue
+      if (this._optimisticFlipResolve) {
+        try { this._optimisticFlipResolve(); } catch { /* ignore */ }
+        this._optimisticFlipResolve = null;
+      }
     }, 5100); // 4600 + 500
     this.timeouts.push(t0c);
+
+    // Return a promise that resolves when the optimistic flip fade timeline ends
+    return new Promise((resolve) => {
+      this._optimisticFlipResolve = resolve;
+    });
   }
 
   /**
@@ -245,6 +281,22 @@ export class AnimationPlayer {
   }
 
   /**
+   * Play a server-provided hint and return a promise that resolves when
+   * the server-side hint animation completes (i.e., when complete() runs).
+   */
+  playHint(hint, previousPlayerIndex = null) {
+    // If a match result is already queued, we'll let queueMatchResultAfterFlip
+    // handle timing. Otherwise play immediately and return a promise that
+    // resolves once complete() is called.
+    if (!hint) return Promise.resolve();
+    // Start playing the match result now
+    this.playMatchResult(hint);
+    return new Promise((resolve) => {
+      this._hintResolve = resolve;
+    });
+  }
+
+  /**
    * Update animation state and notify React
    */
   updateState(updates) {
@@ -282,6 +334,23 @@ export class AnimationPlayer {
     // Clear the animation flag in Firestore to allow bot turns
     if (this.gameId) {
       await this.clearAnimationFlag();
+    }
+
+    // Notify the hook that animations are finished so buffered updates apply
+    if (this.setIsAnimating) {
+      try {
+        this.setIsAnimating(false);
+        console.log('📦 Animation complete (complete()) - releasing buffer');
+      } catch (err) {
+        console.error('Error calling setIsAnimating(false) in complete():', err);
+      }
+    }
+    // Clear server hint flag
+    this.serverHintQueued = false;
+    // Resolve any pending hint promise
+    if (this._hintResolve) {
+      try { this._hintResolve(); } catch { /* ignore */ }
+      this._hintResolve = null;
     }
   }
   

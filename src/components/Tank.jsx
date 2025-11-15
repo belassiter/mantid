@@ -36,6 +36,10 @@ const Tank = ({
   onEmojiClick,
   highlightedCardIds = new Set(),
   animatingCardIds = new Set(),
+  flippingCard = null,
+  isFlipping = false,
+  isFlipComplete = false,
+  isFadingFlippedCard = false,
   isLocalMode = false
 }) => {
   const [visibleEmojis, setVisibleEmojis] = useState([]);
@@ -154,11 +158,21 @@ const Tank = ({
               {groupedCards[color].map((card, index) => {
                 const isHighlighted = highlightedCardIds.has(card.id);
                 const isAnimating = animatingCardIds.has(card.id);
+                // If this card is currently being shown in the flipping overlay,
+                // hide the tank copy until the overlay has finished to avoid a
+                // duplicate visible card (overlay + tank simultaneously).
+                // Consider the overlay active during the whole optimistic flip lifecycle
+                const overlayActive = Boolean(flippingCard && flippingCard.id && (flippingCard.id === card.id) && (isFlipping || isFlipComplete || isFadingFlippedCard));
+
+                // If the card is overlayed and overlay is active, don't render the tank copy
+                if (overlayActive) {
+                  return null;
+                }
 
                 return (
                   <div
                     key={card.id}
-                    className={`stacked-card ${isHighlighted ? 'highlighted-card' : ''} ${isAnimating ? 'animating-card' : ''}`}
+                    className={`stacked-card ${isHighlighted ? 'highlighted-card' : ''} ${isAnimating ? 'animating-card' : ''} ${isAnimating ? 'fade-in' : ''}`}
                     style={{ marginTop: index > 0 ? '-105px' : '0' }}
                   >
                     <Card card={card} showBack={false} />

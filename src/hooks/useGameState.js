@@ -25,6 +25,15 @@ export const useGameState = (gameId) => {
   const [game, setGame] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState(null);
+
+  // Apply pending update when animation completes
+  // NOTE: We no longer auto-apply pending updates when isAnimating flips to
+  // false. The application of buffered updates is controlled explicitly by
+  // the caller (GameBoard / AnimationCoordinator) via `applyPendingUpdate` so
+  // it can perform any comparison/logging before the authoritative state is
+  // applied to the UI.
 
   useEffect(() => {
     if (!gameId) {
@@ -39,7 +48,16 @@ export const useGameState = (gameId) => {
       gameRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          setGame({ id: snapshot.id, ...snapshot.data() });
+          const newGameState = { id: snapshot.id, ...snapshot.data() };
+          
+          // If animating, buffer the update; otherwise apply immediately
+          if (isAnimating) {
+            console.log('🔒 Buffering game state update (animation in progress)');
+            setPendingUpdate(newGameState);
+          } else {
+            setGame(newGameState);
+          }
+          
           setLoading(false);
         } else {
           setError('Game not found');
@@ -55,7 +73,48 @@ export const useGameState = (gameId) => {
     return () => unsubscribe();
   }, [gameId]);
 
-  return { game, loading, error };
+  /**
+   * Apply any buffered pending update. Optionally pass a compareFn that will
+   * be called with the current client-visible game and the pending server
+   * snapshot before applying; compareFn can be used for logging/debugging.
+   */
+  const applyPendingUpdate = (compareFn = null) => {
+    if (!pendingUpdate) return false;
+    try {
+      // If a compare function is provided, use it to detect diffs. If the
+      // compare function returns a non-empty array (diffs), we log and do
+      // NOT apply the server snapshot (per requested behavior).
+      if (typeof compareFn === 'function') {
+        try {
+          const diffs = compareFn(game, pendingUpdate);
+          if (diffs && Array.isArray(diffs) && diffs.length > 0) {
+            console.error('applyPendingUpdate: detected diffs between client and server state; not applying server state', diffs);
+            return false;
+          }
+        } catch (err) {
+          console.error('Error in compareFn:', err);
+          // On compare errors, be conservative and do not apply
+          return false;
+        }
+      }
+
+      console.log('📦 Applying buffered game state update (applyPendingUpdate)');
+      setGame(pendingUpdate);
+      setPendingUpdate(null);
+      return true;
+    } catch (error) {
+      console.error('Error applying pending update:', error);
+      return false;
+    }
+  };
+
+  return {
+    game,
+    loading,
+    error,
+    setIsAnimating, // Expose animation control to components
+    applyPendingUpdate
+  };
 };
 
 // Create a new game room
