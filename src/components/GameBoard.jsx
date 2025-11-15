@@ -67,7 +67,12 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
 
   // Initialize animation player
   useEffect(() => {
-    const player = new AnimationPlayer(game?.roomCode, setIsAnimating);
+    // Create AnimationPlayer with configurable durations if needed (defaults used here).
+    const player = new AnimationPlayer(game?.roomCode, setIsAnimating, {
+      // flipMs: 2600, // flip animation duration
+      // holdMs: 2000, // how long the card stays face-up after flip
+      // fadeMs: 500   // fade duration
+    });
     player.setUpdateCallback((newState) => {
       setAnimationState(newState);
     });

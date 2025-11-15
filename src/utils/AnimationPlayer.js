@@ -4,7 +4,7 @@
  */
 
 export class AnimationPlayer {
-  constructor(gameId, setIsAnimating) {
+  constructor(gameId, setIsAnimating, options = {}) {
     this.gameId = gameId;
     this.isAnimating = false;
     this.setIsAnimating = setIsAnimating; // Control function from useGameState
@@ -24,6 +24,13 @@ export class AnimationPlayer {
     this.flipStartTime = null; // Track when flip animation started
     this._optimisticFlipResolve = null;
     this._hintResolve = null;
+    // Duration options (ms) for flip timeline - configurable for tuning
+    // Defaults: flip 2600ms, hold 2000ms, fade 500ms (total 5100ms)
+    this.durations = {
+      flipMs: typeof options.flipMs === 'number' ? options.flipMs : 2600,
+      holdMs: typeof options.holdMs === 'number' ? options.holdMs : 2000,
+      fadeMs: typeof options.fadeMs === 'number' ? options.fadeMs : 500
+    };
   }
 
   /**
@@ -175,7 +182,7 @@ export class AnimationPlayer {
       isAnimating: true
     });
 
-    // After flip CSS animation completes (2600ms), hold card visible
+    // After flip CSS animation completes (flipMs), hold card visible
     const t0a = setTimeout(() => {
       this.updateState({
         isFlipping: false,
@@ -184,16 +191,16 @@ export class AnimationPlayer {
     }, 2600);
     this.timeouts.push(t0a);
 
-    // After holding for 2 seconds (4600ms total), start fade (500ms)
+    // After holding for configured holdMs (flipMs + holdMs total), start fade (fadeMs)
     const t0b = setTimeout(() => {
       this.updateState({
         isFlipComplete: false,
         isFadingFlippedCard: true
       });
-    }, 4600); // 2600 + 2000
+    }, this.durations.flipMs + this.durations.holdMs);
     this.timeouts.push(t0b);
 
-    // After fade completes (5100ms total) mark that the optimistic flip's
+    // After fade completes (flipMs + holdMs + fadeMs total) mark that the optimistic flip's
     // fade timeline has finished. Do NOT remove the overlay (flippingCard)
     // here. Keeping the overlay in the DOM (with opacity 0) prevents a
     // single-frame flash if the authoritative game state or piled cards
@@ -210,7 +217,7 @@ export class AnimationPlayer {
         try { this._optimisticFlipResolve(); } catch { /* ignore */ }
         this._optimisticFlipResolve = null;
       }
-    }, 5100); // 4600 + 500
+    }, this.durations.flipMs + this.durations.holdMs + this.durations.fadeMs);
     this.timeouts.push(t0c);
 
     // Return a promise that resolves when the optimistic flip fade timeline ends

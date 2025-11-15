@@ -75,13 +75,17 @@ export class AnimationCoordinator {
         if (!this.animationPlayer) return;
         // animationPlayer.playOptimisticFlip now returns a Promise that resolves
         // when the optimistic flip fade timeline completes. Await it, but use
-        // a timeout fallback in case the player doesn't resolve.
+        // a timeout fallback is not used here: we want to wait for the
+        // player's optimistic flip timeline (flip+hold+fade) to complete so
+        // the hold duration actually takes effect. If the animation player
+        // fails to resolve (bug), we catch and continue to avoid blocking
+        // forever.
         if (typeof this.animationPlayer.playOptimisticFlip === 'function') {
           try {
             const p = this.animationPlayer.playOptimisticFlip(payload.cardBack, payload.playerIndex);
-            await this._withTimeout(p, this.defaultTimeout, abort);
-          } catch {
-            // ignore and continue
+            await p; // await the full optimistic flip timeline
+          } catch (err) {
+            console.warn('START_OPTIMISTIC_FLIP: optimistic flip promise rejected or errored', err);
           }
         }
         break;
