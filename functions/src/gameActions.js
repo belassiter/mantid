@@ -4,11 +4,12 @@ const { findMatchingCards } = require('./cardLogic');
 const { getNextPlayerIndex, checkWinCondition } = require('./gameRules');
 
 const db = admin.firestore();
+const { makeBotDecision } = require('./botTrigger');
 
 /**
  * Core action processing logic - can be called directly by bot trigger
  */
-async function processAction({ gameId, action, targetPlayerId, userId, isBot = false }) {
+async function processAction({ gameId, action, targetPlayerId, userId, isBot = false, actionId = null }) {
   // Validation
   if (!gameId || !action) {
     throw new Error('Missing required fields');
@@ -32,6 +33,54 @@ async function processAction({ gameId, action, targetPlayerId, userId, isBot = f
     }
 
     const game = gameDoc.data();
+
+    // If this is a bot-execution request that references a pending bot action, validate it
+    if (isBot && actionId) {
+      const pending = game.botPendingAction;
+      if (!pending) {
+        console.error('Bot action validation failed - no pending bot action', { gameId, userId, action, targetPlayerId, actionId });
+        throw new Error('No pending bot action');
+      }
+      if (pending.actionId !== actionId) {
+        // Allow a tolerant match if the pending action semantics match (same bot, same action, same target)
+        const tolerantMatch = (
+          pending.botPlayerId === userId &&
+          pending.action === action &&
+          ((pending.targetPlayerId || null) === (targetPlayerId || null)) &&
+          !pending.consumed &&
+          !(pending.expiresAt && pending.expiresAt < Date.now())
+        );
+        if (tolerantMatch) {
+          console.warn('Bot action id mismatch tolerated - using server pending.actionId', { gameId, userId, providedActionId: actionId, pendingActionId: pending.actionId, pending });
+          // Use server's authoritative actionId for consumption
+          actionId = pending.actionId;
+        } else {
+          console.error('Bot action validation failed - action id mismatch', { gameId, userId, providedActionId: actionId, pendingActionId: pending.actionId, pending });
+          throw new Error('Invalid bot action id');
+        }
+      }
+      if (pending.consumed) {
+        console.error('Bot action validation failed - already consumed', { gameId, userId, actionId, pending });
+        throw new Error('Bot action already consumed');
+      }
+      if (pending.expiresAt && pending.expiresAt < Date.now()) {
+        console.error('Bot action validation failed - expired', { gameId, userId, actionId, pending });
+        throw new Error('Bot action expired');
+      }
+      if (pending.botPlayerId !== userId) {
+        console.error('Bot action validation failed - botPlayerId mismatch', { gameId, userId, actionId, pending });
+        throw new Error('Bot action not for this bot');
+      }
+      // Ensure requested action matches pending intent
+      if (pending.action !== action) {
+        console.error('Bot action validation failed - action mismatch', { gameId, userId, action, pending });
+        throw new Error('Requested action does not match pending bot action');
+      }
+      if ((pending.targetPlayerId || null) !== (targetPlayerId || null)) {
+        console.error('Bot action validation failed - target mismatch', { gameId, userId, targetPlayerId, pending });
+        throw new Error('Requested target does not match pending bot action');
+      }
+    }
 
     // Find player - handle bots, local mode, and regular multiplayer
     let playerIndex;
@@ -84,6 +133,15 @@ async function processAction({ gameId, action, targetPlayerId, userId, isBot = f
       actionResult = executeStealAction(game, playerIndex, targetIndex);
     }
 
+    // If this was a bot execution (actionId present), mark the pending action consumed
+    if (isBot && actionId) {
+      actionResult.updates = actionResult.updates || {};
+      actionResult.updates.botPendingAction = {
+        ...(game.botPendingAction || {}),
+        consumed: true
+      };
+    }
+
     // Update game state
     transaction.update(gameRef, actionResult.updates);
 
@@ -98,7 +156,7 @@ async function processAction({ gameId, action, targetPlayerId, userId, isBot = f
  * Called by clients when they click Score or Steal button
  */
 exports.performAction = functions.https.onCall(async (data, context) => {
-  const { gameId, action, targetPlayerId, botPlayerId } = data;
+  const { gameId, action, targetPlayerId, botPlayerId, actionId } = data;
   
   // Determine if this is a bot call or player call
   const isBotCall = !!botPlayerId;
@@ -115,11 +173,25 @@ exports.performAction = functions.https.onCall(async (data, context) => {
       action,
       targetPlayerId,
       userId,
-      isBot: isBotCall
+      isBot: isBotCall,
+      actionId: actionId || null
     });
     return result;
   } catch (error) {
     console.error('Error performing action:', error);
+    // Try to log the current botPendingAction in the game doc for debugging
+    try {
+      if (data && data.gameId) {
+        const gameDoc = await db.collection('games').doc(data.gameId).get();
+        if (gameDoc.exists) {
+          console.error('Current game.botPendingAction for debugging:', gameDoc.data().botPendingAction);
+        } else {
+          console.error('Game doc not found when logging debug info', { gameId: data.gameId });
+        }
+      }
+    } catch (logErr) {
+      console.error('Failed to read game doc for debug logging', logErr);
+    }
     // Convert regular errors to HttpsError for clients
     throw new functions.https.HttpsError('internal', error.message || 'Failed to perform action');
   }
@@ -183,26 +255,49 @@ function executeScoreAction(game, playerIndex) {
     // Note: drawnCard flip is handled client-side optimistically
   };
 
-  return {
-    updates: {
+  const updates = {
+    players: updatedPlayers,
+    drawPile,
+    topCardBack,
+    currentPlayerIndex: nextPlayerIndex,
+    animationHint,
+    animationInProgress: true, // Block bot turns during animation
+    lastAction: {
+      player: player.name,
+      action: 'score',
+      result: isSuccess ? 'success' : 'no match',
+      resultSymbol: isSuccess ? 'MATCH' : 'NO_MATCH',
+      color: drawnCard.color,
+      timestamp: new Date().toISOString()
+    },
+    ...(hasWinner && { status: 'finished' })
+  };
+
+  // If the next player is a bot, compute its intended action now and include a pending action
+  const nextPlayer = updatedPlayers[nextPlayerIndex];
+  if (nextPlayer?.isBot) {
+    const newGame = {
+      ...game,
       players: updatedPlayers,
       drawPile,
       topCardBack,
-      currentPlayerIndex: nextPlayerIndex,
-      animationHint,
-      animationInProgress: true, // Block bot turns during animation
-      lastAction: {
-        player: player.name,
-        action: 'score',
-        result: isSuccess ? 'success' : 'no match',
-        resultSymbol: isSuccess ? 'MATCH' : 'NO_MATCH',
-        color: drawnCard.color,
-        timestamp: new Date().toISOString()
-      },
-      ...(hasWinner && { status: 'finished' })
-    },
-    animationHint
-  };
+      currentPlayerIndex: nextPlayerIndex
+    };
+    const botDecision = makeBotDecision(newGame, nextPlayerIndex, nextPlayer.botDifficulty || 'medium');
+    const actionId = `bot-${Date.now()}-${Math.random().toString(36).substr(2,9)}`;
+    const expiresAt = Date.now() + 30000; // 30s
+    updates.botPendingAction = {
+      action: botDecision.action,
+      targetPlayerId: botDecision.targetPlayer != null ? newGame.players[botDecision.targetPlayer].id : null,
+      actionId,
+      computedAt: Date.now(),
+      expiresAt,
+      consumed: false,
+      botPlayerId: nextPlayer.id
+    };
+  }
+
+  return { updates, animationHint };
 }
 
 /**
@@ -265,24 +360,47 @@ function executeStealAction(game, playerIndex, targetIndex) {
     // Note: drawnCard flip is handled client-side optimistically
   };
 
-  return {
-    updates: {
+  const updates = {
+    players: updatedPlayers,
+    drawPile,
+    topCardBack,
+    currentPlayerIndex: nextPlayerIndex,
+    animationHint,
+    animationInProgress: true, // Block bot turns during animation
+    lastAction: {
+      player: player.name,
+      action: 'steal',
+      target: targetPlayer.name,
+      result: isSuccess ? 'success' : 'no match',
+      resultSymbol: isSuccess ? 'MATCH' : 'NO_MATCH',
+      color: drawnCard.color,
+      timestamp: new Date().toISOString()
+    }
+  };
+
+  // If the next player is a bot, compute its intended action now and include a pending action
+  const nextPlayer = updatedPlayers[nextPlayerIndex];
+  if (nextPlayer?.isBot) {
+    const newGame = {
+      ...game,
       players: updatedPlayers,
       drawPile,
       topCardBack,
-      currentPlayerIndex: nextPlayerIndex,
-      animationHint,
-      animationInProgress: true, // Block bot turns during animation
-      lastAction: {
-        player: player.name,
-        action: 'steal',
-        target: targetPlayer.name,
-        result: isSuccess ? 'success' : 'no match',
-        resultSymbol: isSuccess ? 'MATCH' : 'NO_MATCH',
-        color: drawnCard.color,
-        timestamp: new Date().toISOString()
-      }
-    },
-    animationHint
-  };
+      currentPlayerIndex: nextPlayerIndex
+    };
+    const botDecision = makeBotDecision(newGame, nextPlayerIndex, nextPlayer.botDifficulty || 'medium');
+    const actionId = `bot-${Date.now()}-${Math.random().toString(36).substr(2,9)}`;
+    const expiresAt = Date.now() + 30000; // 30s
+    updates.botPendingAction = {
+      action: botDecision.action,
+      targetPlayerId: botDecision.targetPlayer != null ? newGame.players[botDecision.targetPlayer].id : null,
+      actionId,
+      computedAt: Date.now(),
+      expiresAt,
+      consumed: false,
+      botPlayerId: nextPlayer.id
+    };
+  }
+
+  return { updates, animationHint };
 }
