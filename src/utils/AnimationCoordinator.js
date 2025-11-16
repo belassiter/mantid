@@ -17,6 +17,10 @@ export class AnimationCoordinator {
     this.queue = [];
     this.isRunning = false;
     this.currentAbort = null;
+    // Keep a small insertion-ordered map of processed server hint signatures
+    // to deduplicate duplicate hints arriving via snapshot + direct response.
+    // Map key -> timestamp when seen. We'll prune when map grows large.
+    this.processedHints = new Map();
   }
 
   enqueue(commands = []) {
@@ -110,6 +114,34 @@ export class AnimationCoordinator {
       case 'PLAY_SERVER_HINT': {
         if (!this.animationPlayer) return;
         try {
+          // Deduplicate server hints to avoid double-playing the same hint
+          // when it arrives via onSnapshot and also as a direct server
+          // response. Use a small signature composed of timestamp/playerId/sequence
+          // when available; fallback to JSON string of hint.
+          const hint = payload && payload.hint ? payload.hint : null;
+          if (hint) {
+            const sig = (hint.timestamp ? String(hint.timestamp) : '') + '|' + (hint.playerId || '') + '|' + (hint.sequence || '') ;
+            if (this.processedHints.has(sig)) {
+              // Already processed recently - skip
+              // Refresh timestamp so it stays in the LRU window
+              this.processedHints.set(sig, Date.now());
+              // Small log for visibility
+              console.debug('PLAY_SERVER_HINT skipped - duplicate hint signature', sig);
+              break;
+            }
+            // Record signature and prune if necessary
+            this.processedHints.set(sig, Date.now());
+            if (this.processedHints.size > 1000) {
+              // prune oldest entries (remove 100)
+              const it = this.processedHints.keys();
+              for (let i = 0; i < 100; i++) {
+                const k = it.next().value;
+                if (!k) break;
+                this.processedHints.delete(k);
+              }
+            }
+          }
+
           if (typeof this.animationPlayer.playHint === 'function') {
             const p = this.animationPlayer.playHint(payload.hint, payload.previousPlayerIndex);
             // Await the player's promise fully; server hints should be serialized
@@ -117,8 +149,9 @@ export class AnimationCoordinator {
             // to prematurely advance the sequence.
             await p;
           }
-        } catch {
-          // ignore and continue
+        } catch (e) {
+          // ignore and continue, but log unexpected errors for telemetry
+          console.warn('PLAY_SERVER_HINT handler error (ignored):', e);
         }
         break;
       }
