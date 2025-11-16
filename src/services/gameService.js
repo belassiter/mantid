@@ -6,29 +6,31 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase/config';
 
-const functions = getFunctions(app);
+const functions = getFunctions(app, 'us-central1');
+const mantidFn = httpsCallable(functions, 'mantid');
+
+const callMantid = async (action, payload) => {
+  try {
+    const result = await mantidFn({ action, payload });
+    return result.data;
+  } catch (error) {
+    console.error(`Action '${action}' failed:`, error);
+    throw new Error(error.message || `Failed to perform action '${action}'`);
+  }
+};
 
 /**
  * Perform a game action (score or steal)
  */
 export const performAction = async (gameId, action, targetPlayerId = null, botPlayerId = null, actionId = null) => {
-  const performActionFn = httpsCallable(functions, 'performAction');
-  
-  try {
-    const payload = {
-      gameId,
-      action,
-      ...(targetPlayerId && { targetPlayerId }),
-      ...(botPlayerId && { botPlayerId }),
-      ...(actionId && { actionId })
-    };
-
-    const result = await performActionFn(payload);
-    return result.data;
-  } catch (error) {
-    console.error('Action failed:', error);
-    throw new Error(error.message || 'Failed to perform action');
-  }
+  const payload = {
+    gameId,
+    action,
+    ...(targetPlayerId && { targetPlayerId }),
+    ...(botPlayerId && { botPlayerId }),
+    ...(actionId && { actionId })
+  };
+  return callMantid('performAction', payload);
 };
 
 /**
@@ -50,11 +52,9 @@ export const performSteal = async (gameId, targetPlayerId, botPlayerId = null, a
  * This is used to trigger the next bot turn.
  */
 export const signalClientReady = async (gameId) => {
-  const signalClientReadyFn = httpsCallable(functions, 'signalClientReady');
   try {
-    await signalClientReadyFn({ gameId });
+    await callMantid('signalClientReady', { gameId });
   } catch (error) {
-    console.error('Failed to signal client ready:', error);
     // Don't re-throw, as this is not a critical user-facing error.
     // The server will eventually recover or the user can refresh.
   }

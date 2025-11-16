@@ -22,9 +22,9 @@ function makeBotDecision(game, botIndex, difficulty = 'medium') {
   if (difficulty === 'easy') {
     return easyStrategy(game, botIndex);
   } else if (difficulty === 'hard') {
-    return hardStrategy(game, botIndex);
+    return hardStrategy(game, botIndex, topCard);
   } else {
-    return mediumStrategy(game, botIndex);
+    return mediumStrategy(game, botIndex, topCard);
   }
 }
 
@@ -39,9 +39,8 @@ function easyStrategy(game, botIndex) {
   return { action: 'steal', targetPlayer: targetIndex };
 }
 
-function mediumStrategy(game, botIndex) {
+function mediumStrategy(game, botIndex, topCard) {
   const bot = game.players[botIndex];
-  const topCard = game.drawPile[game.drawPile.length - 1];
   
   const scoreProb = calculateMatchProbability(bot.tank, topCard.backColors);
   
@@ -57,9 +56,8 @@ function mediumStrategy(game, botIndex) {
   return { action: 'steal', targetPlayer: targetIndex };
 }
 
-function hardStrategy(game, botIndex) {
+function hardStrategy(game, botIndex, topCard) {
   const bot = game.players[botIndex];
-  const topCard = game.drawPile[game.drawPile.length - 1];
   
   const scoreProb = calculateMatchProbability(bot.tank, topCard.backColors);
   

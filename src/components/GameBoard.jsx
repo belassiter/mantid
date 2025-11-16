@@ -289,10 +289,6 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
     const prev = prevAnimatingRef.current;
     const now = animationState.isAnimating;
     if (prev && !now) {
-      // animation finished
-      console.log('Animation finished, signaling client ready.');
-      signalClientReady(game.roomCode);
-
       if (applyPendingUpdate) {
           applyPendingUpdate((clientState, serverState) => {
             try {

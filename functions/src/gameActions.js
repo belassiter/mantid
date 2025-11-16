@@ -92,7 +92,7 @@ async function processAction({ gameId, action, targetPlayerId, userId }) {
 /**
  * Callable function to perform game actions (score or steal) for human players.
  */
-exports.performAction = functions.https.onCall(async (data, context) => {
+async function performAction(data, context) {
   const { gameId, action, targetPlayerId } = data;
   
   const userId = context.auth?.uid;
@@ -114,10 +114,10 @@ exports.performAction = functions.https.onCall(async (data, context) => {
     console.error('Error performing action:', error);
     throw new functions.https.HttpsError('internal', error.message || 'Failed to perform action');
   }
-});
+}
 
 // Export the core processing function for use by other modules if needed
-exports.processAction = processAction;
+// exports.processAction = processAction;
 
 /**
  * Execute a score action - draw card and try to match in own tank
@@ -282,7 +282,7 @@ function executeStealAction(game, playerIndex, targetIndex) {
   return { updates, animationHint };
 }
 
-exports.signalClientReady = functions.https.onCall(async (data, context) => {
+async function signalClientReady(data, context) {
   const { gameId } = data;
   if (!gameId) {
     throw new functions.https.HttpsError('invalid-argument', 'gameId is required');
@@ -301,7 +301,7 @@ exports.signalClientReady = functions.https.onCall(async (data, context) => {
       // If an animation was in progress, it's now finished.
       // Check if it's a bot's turn to play.
       const currentPlayer = game.players[game.currentPlayerIndex];
-      if (currentPlayer?.isBot && game.animationInProgress) {
+      if (currentPlayer?.isBot) {
         console.log(`Bot turn for ${currentPlayer.name} in game ${gameId}`);
 
         // Make bot decision
@@ -338,4 +338,9 @@ exports.signalClientReady = functions.https.onCall(async (data, context) => {
     }
     throw new functions.https.HttpsError('internal', 'Failed to process client ready signal');
   }
-});
+}
+
+module.exports = {
+  performAction,
+  signalClientReady,
+};
