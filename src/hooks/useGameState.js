@@ -1,6 +1,6 @@
 // Custom hook for managing game state with Firestore
 import { useState, useEffect } from 'react';
-import { db } from '../firebase/config';
+import { db, auth } from '../firebase/config';
 import { 
   collection, 
   doc, 
@@ -12,6 +12,8 @@ import {
   arrayRemove,
   increment 
 } from 'firebase/firestore';
+import { compareGameState } from '../utils/compareGameState';
+import { ALLOW_SERVER_OVERWRITE, LOG_SERVER_DIFFS } from '../config';
 import { 
   generateDeck, 
   shuffleDeck, 
@@ -19,12 +21,24 @@ import {
   findMatchingCards,
   generateRoomCode 
 } from '../utils/cardLogic';
+import { performScore as serverPerformScore, performSteal as serverPerformSteal } from '../services/gameService';
 import { generateBotName, BOT_DIFFICULTIES } from '../utils/botLogic';
 
 export const useGameState = (gameId) => {
   const [game, setGame] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState(null);
+  const [pendingDiffs, setPendingDiffs] = useState(null);
+  const [usingPolling, setUsingPolling] = useState(false); // fallback when realtime fails
+
+  // Apply pending update when animation completes
+  // NOTE: We no longer auto-apply pending updates when isAnimating flips to
+  // false. The application of buffered updates is controlled explicitly by
+  // the caller (GameBoard / AnimationCoordinator) via `applyPendingUpdate` so
+  // it can perform any comparison/logging before the authoritative state is
+  // applied to the UI.
 
   useEffect(() => {
     if (!gameId) {
@@ -33,29 +47,249 @@ export const useGameState = (gameId) => {
     }
 
     const gameRef = doc(db, 'games', gameId);
-    
-    // Subscribe to real-time updates
-    const unsubscribe = onSnapshot(
-      gameRef,
-      (snapshot) => {
-        if (snapshot.exists()) {
-          setGame({ id: snapshot.id, ...snapshot.data() });
-          setLoading(false);
-        } else {
-          setError('Game not found');
-          setLoading(false);
-        }
-      },
-      (err) => {
-        setError(err.message);
-        setLoading(false);
-      }
-    );
 
-    return () => unsubscribe();
+    let pollingInterval = null;
+    let retryRealtimeTimer = null;
+
+    const stopPolling = () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+      setUsingPolling(false);
+    };
+
+    const processServerState = (newGameState) => {
+      if (!newGameState) return;
+      // Initial load: accept server snapshot so UI has something to render.
+      if (!game) {
+        console.log('Initial load: accepting server snapshot');
+        setGame(newGameState);
+        setLoading(false);
+        return;
+      }
+
+      // Compare server snapshot to current client-visible state
+      const diffs = compareGameState(game, newGameState) || [];
+
+      if (diffs.length > 0) {
+        // Buffer incoming server snapshot for explicit apply later
+        setPendingUpdate(newGameState);
+        setPendingDiffs(diffs);
+
+        if (LOG_SERVER_DIFFS) {
+          console.error('Server snapshot differs from client state — buffering and logging diffs', diffs);
+          console.debug('Client state (short):', {
+            drawPileLen: (game.drawPile || []).length,
+            topCard: (game.drawPile || []).length ? game.drawPile[game.drawPile.length - 1].id : null,
+            currentPlayerIndex: game.currentPlayerIndex
+          });
+          console.debug('Server state (short):', {
+            drawPileLen: (newGameState.drawPile || []).length,
+            topCard: (newGameState.drawPile || []).length ? newGameState.drawPile[newGameState.drawPile.length - 1].id : null,
+            currentPlayerIndex: newGameState.currentPlayerIndex
+          });
+        }
+
+        console.log('Server snapshot buffered; not overwriting client state (diffs present)');
+      } else {
+        if (ALLOW_SERVER_OVERWRITE) {
+          setGame(newGameState);
+        } else {
+          console.debug('Server snapshot identical to client state; skipping overwrite per policy');
+          setPendingDiffs([]);
+        }
+      }
+
+      setLoading(false);
+    };
+
+    // Subscribe to real-time updates with error handling and polling fallback
+    let unsubscribe = null;
+    const startRealtime = () => {
+      try {
+        unsubscribe = onSnapshot(
+          gameRef,
+          (snapshot) => {
+            if (snapshot.exists()) {
+              processServerState({ id: snapshot.id, ...snapshot.data() });
+            } else {
+              setError('Game not found');
+              setLoading(false);
+            }
+          },
+          (err) => {
+            console.error('Realtime listener error, switching to polling fallback:', err);
+            setError(err.message || String(err));
+            // Start polling fallback
+            if (!pollingInterval) {
+              setUsingPolling(true);
+              pollingInterval = setInterval(async () => {
+                try {
+                  const snap = await getDoc(gameRef);
+                  if (snap.exists()) {
+                    processServerState({ id: snap.id, ...snap.data() });
+                  }
+                } catch (e) {
+                  console.warn('Polling getDoc failed:', e);
+                }
+              }, 2000); // poll every 2s
+
+              // Also attempt to re-establish realtime every 10s
+              retryRealtimeTimer = setInterval(() => {
+                try {
+                  console.log('Attempting to re-establish realtime listener...');
+                  // Try subscribing again; if it succeeds unsubscribe will be replaced
+                  const testUnsub = onSnapshot(gameRef, () => {}, (e) => {});
+                  // If we get here without exception assume it's ok and clear retry timer
+                  if (testUnsub) {
+                    console.log('Realtime resubscription appears supported; switching back to realtime');
+                    if (pollingInterval) {
+                      clearInterval(pollingInterval);
+                      pollingInterval = null;
+                    }
+                    setUsingPolling(false);
+                    clearInterval(retryRealtimeTimer);
+                    retryRealtimeTimer = null;
+                    // cleanup test subscription
+                    try { testUnsub(); } catch (ex) {}
+                    // restart the main realtime subscription
+                    if (unsubscribe) try { unsubscribe(); } catch (ex) {}
+                    startRealtime();
+                  }
+                } catch (e) {
+                  // ignore - will retry
+                }
+              }, 10000);
+            }
+          }
+        );
+      } catch (err) {
+        console.error('Failed to start realtime listener, falling back to polling:', err);
+        setError(String(err));
+        if (!pollingInterval) {
+          setUsingPolling(true);
+          pollingInterval = setInterval(async () => {
+            try {
+              const snap = await getDoc(gameRef);
+              if (snap.exists()) {
+                processServerState({ id: snap.id, ...snap.data() });
+              }
+            } catch (e) {
+              console.warn('Polling getDoc failed:', e);
+            }
+          }, 2000);
+        }
+      }
+    };
+
+    startRealtime();
+
+    return () => {
+      // cleanup
+      try { if (unsubscribe) unsubscribe(); } catch (e) {}
+      try { if (pollingInterval) clearInterval(pollingInterval); } catch (e) {}
+      try { if (retryRealtimeTimer) clearInterval(retryRealtimeTimer); } catch (e) {}
+    };
   }, [gameId]);
 
-  return { game, loading, error };
+  /**
+   * Apply any buffered pending update. Optionally pass a compareFn that will
+   * be called with the current client-visible game and the pending server
+   * snapshot before applying; compareFn can be used for logging/debugging.
+   */
+  const applyPendingUpdate = (compareFn = null) => {
+    if (!pendingUpdate) return false;
+    try {
+      // If a compare function is provided, use it to detect diffs. If the
+      // compare function returns a non-empty array (diffs), we log and do
+      // NOT apply the server snapshot (per requested behavior).
+      if (typeof compareFn === 'function') {
+        try {
+          const diffs = compareFn(game, pendingUpdate);
+          if (diffs && Array.isArray(diffs) && diffs.length > 0) {
+            console.error('applyPendingUpdate: detected diffs between client and server state; not applying server state', diffs);
+            return false;
+          }
+        } catch (err) {
+          console.error('Error in compareFn:', err);
+          // On compare errors, be conservative and do not apply
+          return false;
+        }
+      }
+
+      console.log('📦 Applying buffered game state update (applyPendingUpdate)');
+      setGame(pendingUpdate);
+      setPendingUpdate(null);
+      setPendingDiffs(null);
+      return true;
+    } catch (error) {
+      console.error('Error applying pending update:', error);
+      return false;
+    }
+  };
+
+  /**
+   * Apply a selective patch produced by patchFn(client, server).
+   * patchFn should return a new game object to be made visible to the UI.
+   * This allows the client to merge only the fields it wants to accept from
+   * the server snapshot, preserving locally controlled presentation state.
+   */
+  const applyPendingUpdateSelective = (patchFn) => {
+    if (!pendingUpdate) return false;
+    if (typeof patchFn !== 'function') return false;
+    try {
+      const merged = patchFn(game, pendingUpdate);
+      if (!merged) return false;
+      setGame(merged);
+      setPendingUpdate(null);
+      setPendingDiffs(null);
+      return true;
+    } catch (err) {
+      console.error('Error in applyPendingUpdateSelective:', err);
+      return false;
+    }
+  };
+
+  /**
+   * Convenience helper: accept a named list of top-level fields from the
+   * buffered server snapshot and merge them into the client-visible state.
+   * Example: acceptServerFields(['players','drawPile'])
+   */
+  const acceptServerFields = (fields = []) => {
+    if (!pendingUpdate) return false;
+    if (!Array.isArray(fields) || fields.length === 0) return false;
+    try {
+      const merged = { ...game };
+      fields.forEach((f) => {
+        if (pendingUpdate.hasOwnProperty(f)) {
+          merged[f] = pendingUpdate[f];
+        }
+      });
+      setGame(merged);
+      setPendingUpdate(null);
+      setPendingDiffs(null);
+      return true;
+    } catch (err) {
+      console.error('Error in acceptServerFields:', err);
+      return false;
+    }
+  };
+
+  return {
+    game,
+    loading,
+    error,
+    setIsAnimating, // Expose animation control to components
+    applyPendingUpdate,
+    // Expose pending buffer and helpers so UI/coordinator can inspect and
+    // selectively merge server changes into the client-visible state.
+    pendingUpdate,
+    pendingDiffs,
+    applyPendingUpdateSelective,
+    acceptServerFields
+    ,usingPolling
+  };
 };
 
 // Create a new game room
@@ -310,6 +544,14 @@ export const startGame = async (gameId, game) => {
   try {
     const gameRef = doc(db, 'games', gameId);
     
+    // Check auth status
+    const currentUser = auth.currentUser;
+    console.log('Current auth user:', currentUser ? currentUser.uid : 'NO USER');
+    
+    if (!currentUser) {
+      throw new Error('Not authenticated - cannot start game');
+    }
+    
     // Generate and shuffle deck
     const deck = shuffleDeck(generateDeck());
     
@@ -322,18 +564,24 @@ export const startGame = async (gameId, game) => {
       tank: hands[index]
     }));
 
-    // Get top card back for display
+    // Get top card back for display (send full card, client keeps front secret until flip)
     const topCardBack = remainingDeck.length > 0 
-      ? { backColors: remainingDeck[remainingDeck.length - 1].backColors }
+      ? remainingDeck[remainingDeck.length - 1]
       : null;
 
-    await updateDoc(gameRef, {
+    const updateData = {
       status: 'playing',
       players: updatedPlayers,
       drawPile: remainingDeck,
       topCardBack: topCardBack,
-      currentPlayerIndex: 0
-    });
+      currentPlayerIndex: 0,
+      gameStarted: Date.now() // Add timestamp to help trigger initial bot turn
+    };
+
+    console.log('Starting game with fields:', Object.keys(updateData));
+    console.log('Current game status:', game.status);
+
+    await updateDoc(gameRef, updateData);
   } catch (error) {
     console.error('Error starting game:', error);
     throw error;
@@ -341,145 +589,32 @@ export const startGame = async (gameId, game) => {
 };
 
 // Perform a Score action
-export const performScore = async (gameId, game, playerIndex) => {
+// Server-authoritative performScore: forward to cloud function so server is
+// the single source of truth for game rules and state changes. The client
+// remains responsible for presentation only.
+export const performScore = async (gameId, botPlayerId = null, actionId = null) => {
   try {
-    const gameRef = doc(db, 'games', gameId);
-    const drawPile = [...game.drawPile];
-    
-    if (drawPile.length === 0) {
-      throw new Error('Draw pile is empty');
-    }
-
-    const drawnCard = drawPile.pop();
-    const player = game.players[playerIndex];
-    const updatedTank = [...player.tank, drawnCard];
-    
-    // Check for matches
-    const matchingCards = findMatchingCards(updatedTank, drawnCard.color);
-    
-    let newTank = updatedTank;
-    let scoreIncrement = 0;
-    
-    if (matchingCards.length > 1) {
-      // Match found! Move to score pile
-      scoreIncrement = matchingCards.length;
-      newTank = updatedTank.filter(card => !matchingCards.includes(card));
-    }
-
-    // Update player
-    const updatedPlayers = game.players.map((p, idx) => {
-      if (idx === playerIndex) {
-        return {
-          ...p,
-          tank: newTank,
-          scoreCount: p.scoreCount + scoreIncrement
-        };
-      }
-      return p;
-    });
-
-    // Get new top card back
-    const topCardBack = drawPile.length > 0 
-      ? { backColors: drawPile[drawPile.length - 1].backColors }
-      : null;
-
-    // Move to next player
-    const nextPlayerIndex = (playerIndex + 1) % game.players.length;
-
-    await updateDoc(gameRef, {
-      players: updatedPlayers,
-      drawPile: drawPile,
-      topCardBack: topCardBack,
-      currentPlayerIndex: nextPlayerIndex,
-      lastAction: {
-        player: player.name,
-        action: 'score',
-        result: matchingCards.length > 1 ? 'success' : 'no match',
-        color: drawnCard.color,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    console.error('Error performing score:', error);
-    throw error;
+    return await serverPerformScore(gameId, botPlayerId, actionId);
+  } catch (err) {
+    console.error('Error delegating performScore to server:', err);
+    throw err;
   }
 };
 
 // Perform a Steal action
-export const performSteal = async (gameId, game, playerIndex, targetIndex) => {
+// Server-authoritative performSteal: delegate to cloud function. Accepts
+// targetPlayerId and optional botPlayerId/actionId for bot executions.
+export const performSteal = async (gameId, targetPlayerId, botPlayerId = null, actionId = null) => {
   try {
-    const gameRef = doc(db, 'games', gameId);
-    const drawPile = [...game.drawPile];
-    
-    if (drawPile.length === 0) {
-      throw new Error('Draw pile is empty');
-    }
-
-    const drawnCard = drawPile.pop();
-    const targetPlayer = game.players[targetIndex];
-    const updatedTargetTank = [...targetPlayer.tank, drawnCard];
-    
-    // Check for matches in target's tank
-    const matchingCards = findMatchingCards(updatedTargetTank, drawnCard.color);
-    
-    const currentPlayer = game.players[playerIndex];
-    let newCurrentTank = [...currentPlayer.tank];
-    let newTargetTank = updatedTargetTank;
-    let stealSuccess = false;
-    
-    if (matchingCards.length > 1) {
-      // Match found! Steal to current player's tank
-      stealSuccess = true;
-      newCurrentTank = [...newCurrentTank, ...matchingCards];
-      newTargetTank = updatedTargetTank.filter(card => !matchingCards.includes(card));
-    }
-
-    // Update players
-    const updatedPlayers = game.players.map((p, idx) => {
-      if (idx === playerIndex) {
-        return { ...p, tank: newCurrentTank };
-      }
-      if (idx === targetIndex) {
-        return { ...p, tank: newTargetTank };
-      }
-      return p;
-    });
-
-    // Get new top card back
-    const topCardBack = drawPile.length > 0 
-      ? { backColors: drawPile[drawPile.length - 1].backColors }
-      : null;
-
-    // Move to next player (or stay if 2-player and successful steal)
-    let nextPlayerIndex = (playerIndex + 1) % game.players.length;
-    
-    // Chain steal rule: Only in 2-player games, successful steals get another turn
-    if (game.players.length === 2 && stealSuccess) {
-      nextPlayerIndex = playerIndex; // Stay on current player
-    }
-
-    await updateDoc(gameRef, {
-      players: updatedPlayers,
-      drawPile: drawPile,
-      topCardBack: topCardBack,
-      currentPlayerIndex: nextPlayerIndex,
-      lastAction: {
-        player: currentPlayer.name,
-        action: 'steal',
-        target: targetPlayer.name,
-        result: stealSuccess ? 'success' : 'no match',
-        color: drawnCard.color,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    console.error('Error performing steal:', error);
-    throw error;
+    return await serverPerformSteal(gameId, targetPlayerId, botPlayerId, actionId);
+  } catch (err) {
+    console.error('Error delegating performSteal to server:', err);
+    throw err;
   }
 };
 
 // Send emoji from player
-export const sendEmoji = async (gameId, playerIndex, emoji) => {
+export const sendEmoji = async (gameId, playerId, emoji) => {
   try {
     const gameRef = doc(db, 'games', gameId);
     const gameSnap = await getDoc(gameRef);
@@ -489,11 +624,8 @@ export const sendEmoji = async (gameId, playerIndex, emoji) => {
     }
 
     const game = gameSnap.data();
-    const updatedPlayers = [...game.players];
-    const player = updatedPlayers[playerIndex];
-    
-    // Get existing emoji queue or initialize empty array
-    const currentQueue = player.emojiQueue || [];
+    const currentEmojiState = game.emojiState || {};
+    const playerQueue = currentEmojiState[playerId] || [];
     
     // Add new emoji with timestamp and unique ID
     const newEmoji = {
@@ -503,15 +635,14 @@ export const sendEmoji = async (gameId, playerIndex, emoji) => {
     };
     
     // Keep only the last 5 emojis (including the new one)
-    const updatedQueue = [...currentQueue, newEmoji].slice(-5);
+    const updatedQueue = [...playerQueue, newEmoji].slice(-5);
     
-    updatedPlayers[playerIndex] = {
-      ...player,
-      emojiQueue: updatedQueue
-    };
-
+    // Update only the emojiState field
     await updateDoc(gameRef, {
-      players: updatedPlayers
+      emojiState: {
+        ...currentEmojiState,
+        [playerId]: updatedQueue
+      }
     });
   } catch (error) {
     console.error('Error sending emoji:', error);

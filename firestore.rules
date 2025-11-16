@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Game documents - everyone can read and write (DEVELOPMENT MODE)
+    match /games/{gameId} {
+      allow read, write: if true;
+    }
+    
+    // Block access to all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

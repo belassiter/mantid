@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { auth, signInAnonymous } from './firebase/config';
-import { createGame, createLocalGame, joinGame, startGame, addBotPlayer, removeBotPlayer, changeBotDifficulty, useGameState, performScore, performSteal, sendEmoji } from './hooks/useGameState';
+import { createGame, createLocalGame, joinGame, startGame, addBotPlayer, removeBotPlayer, changeBotDifficulty, useGameState, sendEmoji } from './hooks/useGameState';
 import Lobby from './components/Lobby';
 import WaitingRoom from './components/WaitingRoom';
 import GameBoard from './components/GameBoard';
@@ -11,7 +11,7 @@ function App() {
   const [userId, setUserId] = useState(null);
   const [playerName, setPlayerName] = useState('');
   const [gameId, setGameId] = useState(null);
-  const { game, loading, error } = useGameState(gameId);
+  const { game, loading, error, setIsAnimating, applyPendingUpdate, usingPolling } = useGameState(gameId);
 
   // Sign in anonymously on mount
   useEffect(() => {
@@ -89,47 +89,15 @@ function App() {
     }
   };
 
-  const handleScore = async () => {
-    // In local mode, use the current player based on currentPlayerIndex
-    // In remote mode, find the player by userId
-    const playerIndex = game.isLocalMode 
-      ? game.currentPlayerIndex 
-      : game.players.findIndex(p => p.id === userId);
-    
-    if (playerIndex === -1) {
-      console.error('Player not found');
-      return;
-    }
-    
-    try {
-      await performScore(gameId, game, playerIndex);
-    } catch (error) {
-      console.error('Failed to score:', error);
-    }
-  };
+  // Score and Steal are now handled directly by GameBoard via Cloud Functions
 
-  const handleSteal = async (targetIndex) => {
-    // In local mode, use the current player based on currentPlayerIndex
-    // In remote mode, find the player by userId
-    const playerIndex = game.isLocalMode 
-      ? game.currentPlayerIndex 
-      : game.players.findIndex(p => p.id === userId);
-    
-    if (playerIndex === -1) {
-      console.error('Player not found');
-      return;
-    }
-    
+  const handleEmojiSend = async (emoji) => {
     try {
-      await performSteal(gameId, game, playerIndex, targetIndex);
-    } catch (error) {
-      console.error('Failed to steal:', error);
-    }
-  };
-
-  const handleEmojiSend = async (playerIndex, emoji) => {
-    try {
-      await sendEmoji(gameId, playerIndex, emoji);
+      // Find current player's ID
+      const currentPlayer = game?.players.find(p => p.id === userId);
+      if (currentPlayer) {
+        await sendEmoji(gameId, currentPlayer.id, emoji);
+      }
     } catch (error) {
       console.error('Failed to send emoji:', error);
     }
@@ -214,10 +182,11 @@ function App() {
       <GameBoard
         game={game}
         currentUserId={game.isLocalMode ? game.players[0].id : userId}
-        onScore={handleScore}
-        onSteal={handleSteal}
         onEmojiSend={handleEmojiSend}
         isLocalMode={game.isLocalMode || false}
+        setIsAnimating={setIsAnimating}
+        applyPendingUpdate={applyPendingUpdate}
+        usingPolling={usingPolling}
       />
       <Footer />
     </>

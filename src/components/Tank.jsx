@@ -12,35 +12,37 @@ const getRandomColors = (seed) => {
   const colors = [...COLOR_ORDER];
   const result = [];
   let random = seed * 9301 + 49297; // Simple seeded random
-  
+
   for (let i = 0; i < 3; i++) {
     random = (random * 9301 + 49297) % 233280;
     const index = Math.floor((random / 233280) * colors.length);
     result.push(colors[index]);
   }
-  
+
   return result;
 };
 
-const Tank = ({ 
+const Tank = ({
   id,
-  cards, 
-  playerName, 
-  scoreCount, 
-  isCurrentTurn, 
-  isCurrentPlayer, 
+  cards,
+  playerName,
+  scoreCount,
+  isCurrentTurn,
+  isCurrentPlayer,
   isWinning,
   isBot = false,
   botDifficulty,
   emojiQueue,
   onEmojiClick,
-  hiddenCardIds = new Set(),
-  flippingCardIds = new Set(),
-  fadingOutCardIds = new Set()
+  highlightedCardIds = new Set(),
+  animatingCardIds = new Set(),
+  flippingCard = null,
+  isFlipping = false,
+  isFlipComplete = false,
+  isFadingFlippedCard = false,
+  isLocalMode = false
 }) => {
   const [visibleEmojis, setVisibleEmojis] = useState([]);
-  const [previousCardIds, setPreviousCardIds] = useState(new Set());
-  const [fadingInCardIds, setFadingInCardIds] = useState(new Set());
 
   // Handle emoji queue - filter out expired emojis
   useEffect(() => {
@@ -64,7 +66,7 @@ const Tank = ({
         const age = currentTime - item.timestamp;
         return age < 5000;
       });
-      
+
       if (stillActive.length !== visibleEmojis.length) {
         setVisibleEmojis(stillActive);
       }
@@ -73,38 +75,13 @@ const Tank = ({
     return () => clearInterval(interval);
   }, [emojiQueue]);
 
-  // Detect cards that should fade in (new cards or cards becoming visible)
-  useEffect(() => {
-    const currentVisibleIds = new Set();
-    cards.forEach(card => {
-      if (!hiddenCardIds.has(card.id)) {
-        currentVisibleIds.add(card.id);
-      }
-    });
-    
-    const cardsToFadeIn = new Set();
-    
-    // Find cards that are NOW visible but WEREN'T visible before
-    currentVisibleIds.forEach(id => {
-      if (!previousCardIds.has(id)) {
-        cardsToFadeIn.add(id);
-      }
-    });
-    
-    if (cardsToFadeIn.size > 0) {
-      setFadingInCardIds(cardsToFadeIn);
-      
-      // Clear fade-in state after animation completes
-      setTimeout(() => {
-        setFadingInCardIds(new Set());
-      }, 500); // Match CSS animation duration
+  const handleEmojiClick = (emoji) => {
+    if (onEmojiClick) {
+      onEmojiClick(emoji);
     }
-    
-    // Update previous card IDs to track currently visible cards
-    setPreviousCardIds(currentVisibleIds);
-  }, [cards, hiddenCardIds]);
+  };
 
-  // Group all cards by color for display (don't filter hidden - just mark them)
+  // Group all cards by color for display
   const groupedCards = cards.reduce((acc, card) => {
     if (!acc[card.color]) {
       acc[card.color] = [];
@@ -113,94 +90,99 @@ const Tank = ({
     return acc;
   }, {});
 
-  // Sort the grouped cards by defined color order
+  // Sort colors according to COLOR_ORDER
   const sortedColors = Object.keys(groupedCards).sort((a, b) => {
     return COLOR_ORDER.indexOf(a) - COLOR_ORDER.indexOf(b);
   });
 
-  const handleEmojiClick = (emoji) => {
-    if (onEmojiClick) {
-      onEmojiClick(emoji);
+  // Determine bot indicator color based on difficulty
+  const getBotIndicatorClass = () => {
+    if (!isBot) return '';
+    switch (botDifficulty) {
+      case 'easy':
+        return 'bot-indicator-easy';
+      case 'hard':
+        return 'bot-indicator-hard';
+      default:
+        return 'bot-indicator-medium';
     }
   };
 
   return (
-    <div 
+    <div
+      className={`tank ${isCurrentPlayer ? 'current-player' : 'other-player'} ${isCurrentTurn ? 'active-turn' : ''} ${isWinning ? 'winning' : ''}`}
       id={id}
-      className={`tank ${isCurrentTurn ? 'active-turn' : ''} ${isCurrentPlayer ? 'current-player' : 'other-player'}`}
     >
       <div className="tank-header">
         <div className="player-info">
-          <span className={`player-name ${isBot && botDifficulty ? `bot-name-${botDifficulty}` : ''}`}>
+          <div className={`player-name ${isBot ? `bot-name-${botDifficulty || 'medium'}` : ''}`}>
             {isBot && '🤖 '}{playerName}
-          </span>
-          {isCurrentTurn && <span className="turn-indicator">Active</span>}
-          {isCurrentPlayer && !isCurrentTurn && <span className="you-badge">You</span>}
-          {isBot && <span className="bot-indicator">Bot</span>}
-          
-          {/* Emoji queue display - visible to OTHER players only (not the sender) */}
-          {!isCurrentPlayer && visibleEmojis.length > 0 && (
-            <div className="emoji-queue">
-              {visibleEmojis.map((item) => {
-                const age = Date.now() - item.timestamp;
-                const isVisible = age >= 0 && age < 5000;
-                return (
-                  <div 
-                    key={item.id} 
-                    className={`emoji-display ${isVisible ? 'visible' : ''}`}
-                  >
-                    {item.emoji}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          </div>
+          {isCurrentPlayer && !isLocalMode && <div className="you-badge">YOU</div>}
+          {isBot && <div className={`bot-indicator ${getBotIndicatorClass()}`}>BOT</div>}
+          {isCurrentTurn && <div className="turn-indicator">TURN</div>}
+
+          {/* Floating emojis */}
+          {visibleEmojis.map((item, index) => {
+            const age = Date.now() - item.timestamp;
+            const opacity = Math.max(0, 1 - (age / 5000)); // Fade out over 5 seconds
+            const translateY = -(age / 50); // Float up
+
+            return (
+              <div
+                key={`${item.timestamp}-${index}`}
+                className="floating-emoji"
+                style={{
+                  opacity,
+                  transform: `translateY(${translateY}px)`,
+                  left: `${20 + (index * 40)}px`
+                }}
+              >
+                {item.emoji}
+              </div>
+            );
+          })}
         </div>
-        <div className="score-display">
-          Score: <strong className={isWinning ? 'winning-score' : ''}>{scoreCount}</strong>
+        <div className="score-count">
+          Score: <strong>{scoreCount}</strong>
         </div>
       </div>
-      
-      <div className="tank-cards">
-        {/* Active cards in tank */}
-        {cards.length === 0 && scoreCount === 0 ? (
-          <div className="empty-tank">No cards</div>
+
+      <div className="tank-content">
+        {/* Tank card piles */}
+        {sortedColors.length === 0 ? (
+          <div className="empty-tank">No cards yet</div>
         ) : (
-          sortedColors.map((color) => (
+          sortedColors.map(color => (
             <div key={color} className="card-stack">
               {groupedCards[color].map((card, index) => {
-                const isFlipping = flippingCardIds.has(card.id);
-                const isFadingOut = fadingOutCardIds.has(card.id);
-                const isFadingIn = fadingInCardIds.has(card.id);
-                const isHidden = hiddenCardIds.has(card.id);
-                
+                const isHighlighted = highlightedCardIds.has(card.id);
+                const isAnimating = animatingCardIds.has(card.id);
+                // If this card is currently being shown in the flipping overlay,
+                // hide the tank copy until the overlay has finished to avoid a
+                // duplicate visible card (overlay + tank simultaneously).
+                // Consider the overlay active during the whole optimistic flip lifecycle
+                const overlayActive = Boolean(flippingCard && flippingCard.id && (flippingCard.id === card.id) && (isFlipping || isFlipComplete || isFadingFlippedCard));
+
+                // If the card is overlayed and overlay is active, don't render the tank copy
+                if (overlayActive) {
+                  return null;
+                }
+
                 return (
-                  <div 
-                    key={card.id} 
-                    className={`stacked-card ${isFadingIn ? 'fade-in' : ''} ${isFlipping ? 'flipping-to-back' : ''} ${isFadingOut ? 'fade-out' : ''} ${isHidden ? 'hidden-card' : ''}`}
+                  <div
+                    key={card.id}
+                    className={`stacked-card ${isHighlighted ? 'highlighted-card' : ''} ${isAnimating ? 'animating-card' : ''} ${isAnimating ? 'fade-in' : ''}`}
                     style={{ marginTop: index > 0 ? '-105px' : '0' }}
                   >
-                    {(isFlipping || isFadingOut) ? (
-                      // When flipping or fading out, use flip structure to show back
-                      <div className="flip-inner" style={{ transform: 'rotateY(180deg)' }}>
-                        <div className="flip-front-side">
-                          <Card card={card} showBack={false} />
-                        </div>
-                        <div className="flip-back-side">
-                          <Card card={card} showBack={true} />
-                        </div>
-                      </div>
-                    ) : (
-                      // Normal rendering - show front
-                      <Card card={card} showBack={false} />
-                    )}
+                    <Card card={card} showBack={false} />
                   </div>
                 );
               })}
             </div>
           ))
         )}
-        
+
         {/* Score Pile - rightmost position (last pile) */}
         {scoreCount > 0 && (
           <div className="score-pile" id={`${id}-score-pile`}>
@@ -208,10 +190,10 @@ const Tank = ({
               {[...Array(scoreCount)].map((_, index) => {
                 const randomColors = getRandomColors(index);
                 return (
-                  <div 
+                  <div
                     key={index}
                     className="score-pile-card"
-                    style={{ 
+                    style={{
                       marginTop: index > 0 ? '-110px' : '0',
                       zIndex: index
                     }}
@@ -224,7 +206,7 @@ const Tank = ({
           </div>
         )}
       </div>
-      
+
       {/* Emoji buttons - below cards, only visible for current player and when emoji handler is provided */}
       {isCurrentPlayer && onEmojiClick && (
         <div className="emoji-buttons">
