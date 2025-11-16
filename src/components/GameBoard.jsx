@@ -5,7 +5,7 @@ import { checkWinCondition } from '../utils/gameRules';
 import { AnimationPlayer } from '../utils/AnimationPlayer';
 import AnimationCoordinator from '../utils/AnimationCoordinator';
 import { compareGameState } from '../utils/compareGameState';
-import { performScore, performSteal } from '../services/gameService';
+import { performScore, performSteal, signalClientReady } from '../services/gameService';
 import './GameBoard.css';
 
 const COLOR_MAP = {
@@ -31,8 +31,10 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
     isFlipComplete: false, // Track when flip animation completes but card still showing
     flipPhase: 'none' // 'none'|'half1'|'half2'|'held'
   });
+  // Keep a ref of animationState for reliable polling inside async helpers
+  const animationStateRef = useRef(animationState);
+  useEffect(() => { animationStateRef.current = animationState; }, [animationState]);
   const [lastSeenHintTimestamp, setLastSeenHintTimestamp] = useState(0);
-  const [modalCallerId, setModalCallerId] = useState(null);
   const [clientUnderCards, setClientUnderCards] = useState([]);
   
   const animationPlayerRef = useRef(null);
@@ -271,124 +273,6 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
     }
   }, [game?.animationHint, lastSeenHintTimestamp, game?.players]);
 
-  // Bot decisions are executed on the server and delivered to clients via
-  // `game.botPendingAction`. Clients should only consume pending actions and
-  // must not compute bot decisions locally (except in `isLocalMode` if you
-  // still want a local-only experience). The pending-action consumer below
-  // handles executing server-provided bot actions when UI is ready.
-
-  // When server precomputes a bot action (botPendingAction) we should execute it when UI is ready.
-  useEffect(() => {
-    if (!game || !game.botPendingAction) return;
-    const pending = game.botPendingAction;
-    if (pending.consumed) return;
-    if (pending.expiresAt && pending.expiresAt < Date.now()) return; // expired
-
-    // Only execute if no animation in progress (client controls presentation timing)
-    if (animationState.isAnimating) {
-      console.log('⏳ Waiting for animations to finish before executing pending bot action');
-      return;
-    }
-
-    // Before executing the pending action, apply any buffered server snapshot
-    // so the client UI is authoritative. We allow an optional compare function to
-    // log differences between client visual state and server snapshot.
-    if (applyPendingUpdate) {
-      applyPendingUpdate((clientState, serverState) => {
-        try {
-          const diffs = compareGameState(clientState, serverState) || [];
-          if (diffs.length > 0) {
-            console.error('UI/Server state mismatch on applyPendingUpdate (will NOT apply server state):', { room: game.roomCode, diffs });
-          }
-          return diffs;
-        } catch (err) {
-          console.error('Error comparing game states:', err);
-          return [{ kind: 'compareError', message: String(err) }];
-        }
-      });
-    }
-
-    // Play optimistic flip and then call server to consume the precomputed action
-    const executePending = async () => {
-      try {
-        // Start optimistic flip immediately (acknowledge visually) so we avoid an
-        // enqueue/start race where the server hint may arrive before the flip
-        // has actually begun rendering. If immediate start isn't available fall
-        // back to coordinator enqueue (with a brief delay to let it start).
-        // Determine the current top card from the client's drawPile. Use this
-        // as the optimistic flip card. Do NOT use `game.topCardBack` here
-        // because that field represents the new top after a server pop and
-        // will cause front/back mismatches.
-        const currentTopIndex = game.drawPile.length - 1;
-        const currentTopCard = currentTopIndex >= 0 ? game.drawPile[currentTopIndex] : null;
-        if (currentTopCard) {
-          // Ensure the next card is rendered under the top card BEFORE starting
-          // the optimistic flip so the first-half reveal is correct.
-          try {
-            const nextCardIndex = currentTopIndex - 1;
-            const nextCard = nextCardIndex >= 0 ? game.drawPile[nextCardIndex] : null;
-            if (nextCard) {
-              setClientUnderCards(() => [nextCard]);
-            }
-          } catch (e) {
-            console.warn('unable to set clientUnderCards before optimistic flip for pending bot action', e);
-          }
-
-          if (animationPlayerRef.current && typeof animationPlayerRef.current.startOptimisticFlipImmediate === 'function') {
-            // Start immediately for visual responsiveness
-            await animationPlayerRef.current.startOptimisticFlipImmediate(currentTopCard, game.currentPlayerIndex);
-            // Also enqueue a START_OPTIMISTIC_FLIP so the coordinator is aware
-            // of the flip and will await its promise when processing commands.
-            startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
-          } else {
-            // Coordinator-backed start
-            startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
-            // Small safety delay to allow coordinator to begin the flip
-            await new Promise(res => setTimeout(res, 50));
-          }
-        }
-    // Fire the action with actionId so server validates and consumes it
-        let result = null;
-        if (pending.action === 'score') {
-          result = await performScore(game.roomCode, pending.botPlayerId, pending.actionId);
-        } else if (pending.action === 'steal') {
-          result = await performSteal(game.roomCode, pending.targetPlayerId, pending.botPlayerId, pending.actionId);
-        }
-
-        // After server call, serialize server hint (if any) with VERIFY + SHOW_NEXT_CARD
-        const topIndex = game.drawPile.length - 1;
-        const nextCard = (topIndex - 1 >= 0) ? game.drawPile[topIndex - 1] : null;
-        if (result && result.animationHint) {
-          try { updateLastSeenHintTimestamp(result.animationHint.timestamp || Date.now()); } catch {}
-          const previousPlayerIndex = result.animationHint.playerId ? game.players.findIndex(p => p.id === result.animationHint.playerId) : game.currentPlayerIndex;
-          if (coordinatorRef.current) {
-            try { console.log('Enqueue post-pending SHOW_NEXT_CARD (with server hint)', { nextCardId: nextCard?.id, nextCardColor: nextCard?.color, hintSeq: result.animationHint.sequence }); } catch (e) {}
-            coordinatorRef.current.enqueue([
-              { type: 'PLAY_SERVER_HINT', payload: { hint: result.animationHint, previousPlayerIndex } },
-              { type: 'VERIFY_EXPECTED_STATE', payload: { actionId: pending.actionId } },
-              { type: 'SHOW_NEXT_CARD', payload: { nextCard } },
-              { type: 'COMPLETE' }
-            ]).catch(err => console.error('Post-pending action sequence failed:', err));
-          }
-        } else {
-          if (coordinatorRef.current) {
-            try { console.log('Enqueue post-pending SHOW_NEXT_CARD (no server hint)', { nextCardId: nextCard?.id, nextCardColor: nextCard?.color }); } catch (e) {}
-            coordinatorRef.current.enqueue([
-              { type: 'VERIFY_EXPECTED_STATE', payload: { actionId: pending.actionId } },
-              { type: 'SHOW_NEXT_CARD', payload: { nextCard } },
-              { type: 'COMPLETE' }
-            ]).catch(err => console.error('Post-pending action sequence failed:', err));
-          }
-        }
-      } catch (err) {
-        console.error('Failed to execute pending bot action:', err);
-        // Let failures be visible but don't block the UI — server will remain authoritative
-      }
-    };
-
-    executePending();
-  }, [game?.botPendingAction, animationState.isAnimating, game?.topCardBack]);
-
   // Log when flip animation actually starts rendering
   useEffect(() => {
     if (animationState.isFlipping) {
@@ -406,6 +290,9 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
     const now = animationState.isAnimating;
     if (prev && !now) {
       // animation finished
+      console.log('Animation finished, signaling client ready.');
+      signalClientReady(game.roomCode);
+
       if (applyPendingUpdate) {
           applyPendingUpdate((clientState, serverState) => {
             try {
@@ -434,7 +321,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
     ? !game?.players[game.currentPlayerIndex]?.isBot  // In local mode, your turn if current player is not a bot
     : (game?.currentPlayerIndex === currentPlayerIndex);
 
-  const handleScoreClick = async (callerId = null) => {
+  const handleScoreClick = async () => {
     if (!currentPlayer || animationState.isAnimating) return;
     
     const clickTime = performance.now();
@@ -442,37 +329,28 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
     // Start optimistic flip immediately to reduce enqueue/start races and
     // enqueue a START so the coordinator knows about the flip.
     // Use the actual top-of-pile card for the optimistic flip (not game.topCardBack)
-    {
-      const currentTopIndex = game.drawPile.length - 1;
-      const currentTopCard = currentTopIndex >= 0 ? game.drawPile[currentTopIndex] : null;
-      if (currentTopCard) {
-        // Pre-place the next card so the flip's first-half reveals it.
-        try {
-          const nextCardIndex = currentTopIndex - 1;
-          const nextCard = nextCardIndex >= 0 ? game.drawPile[nextCardIndex] : null;
-          if (nextCard) setClientUnderCards(() => [nextCard]);
-        } catch (e) {
-          console.warn('unable to set clientUnderCards before optimistic flip', e);
-        }
+    const currentTopIndex = game.drawPile.length - 1;
+    const currentTopCard = currentTopIndex >= 0 ? game.drawPile[currentTopIndex] : null;
+    if (currentTopCard) {
+      // Pre-place the next card so the flip's first-half reveals it.
+      try {
+        const nextCardIndex = currentTopIndex - 1;
+        const nextCard = nextCardIndex >= 0 ? game.drawPile[nextCardIndex] : null;
+        if (nextCard) setClientUnderCards(() => [nextCard]);
+      } catch (e) {
+        console.warn('unable to set clientUnderCards before optimistic flip', e);
+      }
 
-        if (animationPlayerRef.current && typeof animationPlayerRef.current.startOptimisticFlipImmediate === 'function') {
-          await animationPlayerRef.current.startOptimisticFlipImmediate(currentTopCard, game.currentPlayerIndex);
-          startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
-        } else {
-          startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
-        }
+      if (animationPlayerRef.current && typeof animationPlayerRef.current.startOptimisticFlipImmediate === 'function') {
+        await animationPlayerRef.current.startOptimisticFlipImmediate(currentTopCard, game.currentPlayerIndex);
+        startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
+      } else {
+        startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
       }
     }
 
     try {
-      // In local-mode the client drives all players (including bots). In
-      // that case we should NOT pass a botPlayerId to the server because
-      // the server treats bot calls specially (it validates bot turn by
-      // matching botPlayerId against game.currentPlayerIndex). For local
-      // games we call performScore without botPlayerId so the server will
-      // use `game.isLocalMode` branch and trust the client-provided turn.
-  const serverBotId = isLocalMode ? null : callerId;
-  const result = await performScore(game.roomCode, serverBotId);
+      const result = await performScore(game.roomCode);
       console.log('performScore server response:', result);
 
       // If server returned an animationHint, serialize it into the same
@@ -482,7 +360,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
       const topIndex = game.drawPile.length - 1;
       const nextCard = (topIndex - 1 >= 0) ? game.drawPile[topIndex - 1] : null; // card to append beneath
       if (result && result.animationHint) {
-  try { updateLastSeenHintTimestamp(result.animationHint.timestamp || Date.now()); } catch {}
+        try { updateLastSeenHintTimestamp(result.animationHint.timestamp || Date.now()); } catch {}
         const previousPlayerIndex = result.animationHint.playerId ? game.players.findIndex(p => p.id === result.animationHint.playerId) : game.currentPlayerIndex;
         if (coordinatorRef.current) {
           try { console.log('Enqueue post-score SHOW_NEXT_CARD (with server hint)', { nextCardId: nextCard?.id, nextCardColor: nextCard?.color, hintSeq: result.animationHint.sequence }); } catch (e) {}
@@ -509,43 +387,39 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
     }
   };
 
-  const handleStealClick = (callerId = null) => {
+  const handleStealClick = () => {
     if (!currentPlayer || animationState.isAnimating) return;
-    setModalCallerId(callerId);
     setShowActionModal(true);
   };
 
-  const handleTargetSelect = async (targetPlayer, callerId = null) => {
+  const handleTargetSelect = async (targetPlayer) => {
     setShowActionModal(false);
     // Start optimistic flip immediately to reduce enqueue/start races and
     // enqueue a START so the coordinator knows about the flip.
     // Use the actual top-of-pile card for the optimistic flip (not game.topCardBack)
-    {
-      const currentTopIndex = game.drawPile.length - 1;
-      const currentTopCard = currentTopIndex >= 0 ? game.drawPile[currentTopIndex] : null;
-      if (currentTopCard) {
-        // Pre-place the next card so the flip's first-half reveals it (match Score behavior)
-        try {
-          const nextCardIndex = currentTopIndex - 1;
-          const nextCard = nextCardIndex >= 0 ? game.drawPile[nextCardIndex] : null;
-          if (nextCard) setClientUnderCards(() => [nextCard]);
-        } catch (e) {
-          console.warn('unable to set clientUnderCards before optimistic flip (steal)', e);
-        }
+    const currentTopIndex = game.drawPile.length - 1;
+    const currentTopCard = currentTopIndex >= 0 ? game.drawPile[currentTopIndex] : null;
+    if (currentTopCard) {
+      // Pre-place the next card so the flip's first-half reveals it (match Score behavior)
+      try {
+        const nextCardIndex = currentTopIndex - 1;
+        const nextCard = nextCardIndex >= 0 ? game.drawPile[nextCardIndex] : null;
+        if (nextCard) setClientUnderCards(() => [nextCard]);
+      } catch (e) {
+        console.warn('unable to set clientUnderCards before optimistic flip (steal)', e);
+      }
 
-        if (animationPlayerRef.current && typeof animationPlayerRef.current.startOptimisticFlipImmediate === 'function') {
-          await animationPlayerRef.current.startOptimisticFlipImmediate(currentTopCard, game.currentPlayerIndex);
-          startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
-        } else {
-          startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
-        }
+      if (animationPlayerRef.current && typeof animationPlayerRef.current.startOptimisticFlipImmediate === 'function') {
+        await animationPlayerRef.current.startOptimisticFlipImmediate(currentTopCard, game.currentPlayerIndex);
+        startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
+      } else {
+        startOptimisticFlip(currentTopCard, game.currentPlayerIndex);
       }
     }
 
     try {
-  const serverBotId = isLocalMode ? null : callerId;
-  console.log('Initiating STEAL request', { room: game.roomCode, targetPlayerId: targetPlayer.id, serverBotId, topCardBackId: game.topCardBack?.id });
-  const result = await performSteal(game.roomCode, targetPlayer.id, serverBotId);
+      console.log('Initiating STEAL request', { room: game.roomCode, targetPlayerId: targetPlayer.id, topCardBackId: game.topCardBack?.id });
+      const result = await performSteal(game.roomCode, targetPlayer.id);
       console.log('performSteal server response:', result);
 
       // Use server-provided animationHint if available and serialize it with
@@ -554,7 +428,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
       const topIndex = game.drawPile.length - 1;
       const nextCard = (topIndex - 1 >= 0) ? game.drawPile[topIndex - 1] : null;
       if (result && result.animationHint) {
-  try { updateLastSeenHintTimestamp(result.animationHint.timestamp || Date.now()); } catch {}
+        try { updateLastSeenHintTimestamp(result.animationHint.timestamp || Date.now()); } catch {}
         const previousPlayerIndex = result.animationHint.playerId ? game.players.findIndex(p => p.id === result.animationHint.playerId) : game.currentPlayerIndex;
         if (coordinatorRef.current) {
           try { console.log('Enqueue post-steal SHOW_NEXT_CARD (with server hint)', { nextCardId: nextCard?.id, nextCardColor: nextCard?.color, hintSeq: result.animationHint.sequence }); } catch (e) {}
@@ -579,8 +453,6 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
       console.error('Steal error:', error);
       alert('Failed to steal: ' + error.message);
     }
-    // Clear modal caller id after action completes
-    setModalCallerId(null);
   };
 
   const handleEmojiClick = (emoji) => {
@@ -784,7 +656,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
                 <button
                   ref={scoreButtonRef}
                   className="btn btn-score"
-                  onClick={() => handleScoreClick(currentPlayer?.isBot ? currentPlayer?.id : null)}
+                  onClick={() => handleScoreClick()}
                   disabled={!isMyTurn || animationState.isAnimating || game.drawPile.length === 0}
                 >
                   Score
@@ -792,7 +664,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
                 <button
                   ref={stealButtonRef}
                   className="btn btn-steal"
-                  onClick={() => handleStealClick(currentPlayer?.isBot ? currentPlayer?.id : null)}
+                  onClick={() => handleStealClick()}
                   disabled={!isMyTurn || animationState.isAnimating || game.drawPile.length === 0 || game.players.length < 2}
                 >
                   Steal
@@ -862,7 +734,7 @@ const GameBoard = ({ game, currentUserId, onEmojiSend, isLocalMode = false, setI
                   <button
                     key={player.id}
                     className="target-button"
-                    onClick={() => handleTargetSelect(player, modalCallerId)}
+                    onClick={() => handleTargetSelect(player)}
                   >
                     <div className="target-name">{player.name}</div>
                     <div className="target-info">

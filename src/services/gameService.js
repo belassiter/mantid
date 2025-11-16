@@ -44,3 +44,18 @@ export const performScore = async (gameId, botPlayerId = null, actionId = null) 
 export const performSteal = async (gameId, targetPlayerId, botPlayerId = null, actionId = null) => {
   return performAction(gameId, 'steal', targetPlayerId, botPlayerId, actionId);
 };
+
+/**
+ * Signal to the server that the client has finished its turn and is ready for the next action.
+ * This is used to trigger the next bot turn.
+ */
+export const signalClientReady = async (gameId) => {
+  const signalClientReadyFn = httpsCallable(functions, 'signalClientReady');
+  try {
+    await signalClientReadyFn({ gameId });
+  } catch (error) {
+    console.error('Failed to signal client ready:', error);
+    // Don't re-throw, as this is not a critical user-facing error.
+    // The server will eventually recover or the user can refresh.
+  }
+};

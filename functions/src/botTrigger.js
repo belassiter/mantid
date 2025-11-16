@@ -11,64 +11,6 @@ const BOT_DIFFICULTIES = {
 };
 
 /**
- * Server-side bot turn processor
- * When the game document updates we check whether it's a bot's turn and
- * there is no pending bot action; if so, compute the bot's decision and
- * write a `botPendingAction` object into the game document so clients can
- * consume it and play the animation sequence.
- */
-exports.processBotTurn = functions.firestore
-  .document('games/{gameId}')
-  .onUpdate(async (change, context) => {
-    try {
-      const before = change.before.exists ? change.before.data() : null;
-      const after = change.after.exists ? change.after.data() : null;
-      if (!after) return null;
-
-      // Only act when the game is in playing state
-      if (after.status !== 'playing') return null;
-
-      // If a pending bot action already exists and is not consumed/expired, do nothing
-      const pending = after.botPendingAction;
-      if (pending && !pending.consumed && (!pending.expiresAt || pending.expiresAt > Date.now())) {
-        return null;
-      }
-
-      const currentIndex = typeof after.currentPlayerIndex === 'number' ? after.currentPlayerIndex : null;
-      if (currentIndex === null) return null;
-      const currentPlayer = (after.players && after.players[currentIndex]) || null;
-      if (!currentPlayer || !currentPlayer.isBot) return null;
-
-      // Compute a bot decision and write it as a pending action
-      const decision = makeBotDecision(after, currentIndex, currentPlayer.botDifficulty || BOT_DIFFICULTIES.MEDIUM);
-      const actionId = `bot-${Date.now()}-${Math.random().toString(36).substr(2,9)}`;
-      const expiresAt = Date.now() + 30000; // 30s
-      const targetPlayerId = (decision.targetPlayer != null && after.players && after.players[decision.targetPlayer])
-        ? after.players[decision.targetPlayer].id
-        : null;
-
-      const update = {
-        botPendingAction: {
-          action: decision.action,
-          targetPlayerId: targetPlayerId,
-          actionId,
-          computedAt: Date.now(),
-          expiresAt,
-          consumed: false,
-          botPlayerId: currentPlayer.id
-        }
-      };
-
-      await db.collection('games').doc(context.params.gameId).update(update);
-      console.log('Wrote botPendingAction for game', context.params.gameId, 'action', decision.action);
-      return null;
-    } catch (err) {
-      console.error('processBotTurn error:', err);
-      return null;
-    }
-  });
-
-/**
  * Bot decision logic (copied from botLogic.js)
  */
 function makeBotDecision(game, botIndex, difficulty = 'medium') {

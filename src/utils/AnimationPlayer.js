@@ -137,8 +137,7 @@ export class AnimationPlayer {
         break;
       default:
         console.warn('Unknown animation sequence:', hint.sequence);
-        this.isAnimating = false;
-        this.updateState({ isAnimating: false });
+        this.complete();
     }
   }
 
@@ -387,11 +386,6 @@ export class AnimationPlayer {
     }
 
     this.cleanup();
-    
-    // Clear the animation flag in Firestore to allow bot turns
-    if (this.gameId) {
-      await this.clearAnimationFlag();
-    }
 
     // Notify the hook that animations are finished so buffered updates apply
     if (this.setIsAnimating) {
@@ -402,26 +396,24 @@ export class AnimationPlayer {
         console.error('Error calling setIsAnimating(false) in complete():', err);
       }
     }
+    
+    // Signal to the server that the client is ready for the next turn.
+    // This will trigger the next bot action if applicable.
+    if (this.gameId) {
+      try {
+        const { signalClientReady } = await import('../services/gameService');
+        await signalClientReady(this.gameId);
+      } catch (error) {
+        console.error('Error signaling client ready:', error);
+      }
+    }
+
     // Clear server hint flag
     this.serverHintQueued = false;
     // Resolve any pending hint promise
     if (this._hintResolve) {
       try { this._hintResolve(); } catch { /* ignore */ }
       this._hintResolve = null;
-    }
-  }
-  
-  /**
-   * Clear animation in progress flag in Firestore
-   */
-  async clearAnimationFlag() {
-    try {
-      const { db } = await import('../firebase/config');
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const gameRef = doc(db, 'games', this.gameId);
-      await updateDoc(gameRef, { animationInProgress: false });
-    } catch (error) {
-      console.error('Error clearing animation flag:', error);
     }
   }
 
